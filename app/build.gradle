@@ -1,0 +1,71 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+// 签名配置放在仓库外（keystore.properties 已 gitignore）。没有它时退回 debug 签名，
+// 方便别人 clone 下来直接跑；但发布版必须用同一个 keystore 签，否则无法覆盖升级。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'com.siweina.misoul'
+    compileSdk 37
+    compileSdkMinor 0
+    buildToolsVersion '37.0.0'
+
+    defaultConfig {
+        applicationId 'com.siweina.misoul'
+        minSdk 33
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0'
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 有 keystore.properties 就用正式签名，否则退回 debug 签名
+            signingConfig keystorePropsFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.activity:activity-compose:1.13.0'
+    implementation 'top.yukonga.miuix.kmp:miuix-ui:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-blur:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-icons:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-preference:0.9.4'
+    compileOnly 'io.github.libxposed:api:102.0.0'
+}
