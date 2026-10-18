@@ -1,6 +1,17 @@
 # MISoul
 
+<div align="center">
+
+![release](https://img.shields.io/github/v/release/siweina/MISoul?include_prereleases&style=flat-square)
+![downloads](https://img.shields.io/github/downloads/siweina/MISoul/total?style=flat-square)
+![license](https://img.shields.io/github/license/siweina/MISoul?style=flat-square)
+![platform](https://img.shields.io/badge/Android-13%2B-3DDC84?style=flat-square&logo=android&logoColor=white)
+![api](https://img.shields.io/badge/libxposed-API%20102-blue?style=flat-square)
+
+</div>
+
 把**超级小爱**的人格换成你自己的 —— 一个 LSPosed 模块。
+
 
 不改小爱的任何文件、不重新签名 APK、不进 Recovery：模块只在 `com.miui.voiceassist` 的内存里把人格文本换掉。关掉开关就立刻回到官方人格，卸载即彻底消失。
 
@@ -60,6 +71,17 @@ adb logcat | grep MISoul
 
 数据目录里小爱自己的文件不会被改，`soul.md` 仍是官方内容——替换只发生在内存里。
 
+## 更新
+
+关于页的「获取更新」会读取 [releases.atom](https://github.com/siweina/MISoul/releases.atom)（普通网页，不限流；不用 api.github.com，因为未登录的 API 按 IP 限流 60 次/小时），发现新版本就下载 APK 并交给系统安装器。
+
+发布时请保持附件命名约定，否则自动更新拼不出下载地址：
+
+```
+MISoul-<tag>.apk     例如  MISoul-v0.2.1-beta.1.apk
+```
+
+离线时可以用「从本地 APK 安装」手动选择文件。
 ## 已知限制
 
 - 混淆名（`rs.a`、`ck.o0`）随小爱版本变化，升级后需要适配；模块会记录 `hook skipped`

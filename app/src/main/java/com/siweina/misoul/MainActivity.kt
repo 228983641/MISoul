@@ -122,6 +122,8 @@ private class UiState(
     val iconHidden: Boolean,
     val setIconHidden: (Boolean) -> Unit,
     val pickUpdate: () -> Unit,
+    val checkUpdate: () -> Unit,
+    val openLink: (String) -> Unit,
     val info: List<InfoRow>,
     val xiaoaiVersion: String,
     val moduleVersion: String,
@@ -156,6 +158,7 @@ private fun App(refreshTick: Int) {
     // 否则跨页滚动经过每一页时它都会动一次，玻璃每动一次就要重画。
     var selectedTab by remember { mutableIntStateOf(0) }
     var pageWidthPx by remember { mutableStateOf(0f) }
+    var checkingUpdate by remember { mutableStateOf(false) }
 
     var name by remember { mutableStateOf("") }
     var soul by remember { mutableStateOf("") }
@@ -228,6 +231,59 @@ private fun App(refreshTick: Int) {
             ).show()
         },
         pickUpdate = { pickApk.launch(arrayOf("application/vnd.android.package-archive")) },
+        checkUpdate = {
+            if (!checkingUpdate) {
+                checkingUpdate = true
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        UpdateApi.check(BuildConfig.VERSION_NAME)
+                    }
+                    when (result) {
+                        is UpdateApi.Result.UpToDate -> Toast.makeText(
+                            context,
+                            "已是最新版本 ${BuildConfig.VERSION_NAME}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+
+                        is UpdateApi.Result.Failed -> Toast.makeText(
+                            context,
+                            "检查失败：${result.message}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+
+                        is UpdateApi.Result.Found -> {
+                            Toast.makeText(
+                                context,
+                                "发现 ${result.release.tag}，开始下载",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            val file = withContext(Dispatchers.IO) {
+                                UpdateApi.download(context, result.release)
+                            }
+                            if (file == null) {
+                                Toast.makeText(context, "下载失败", Toast.LENGTH_SHORT).show()
+                            } else if (!UpdateInstaller.handOff(context, file)) {
+                                Toast.makeText(context, "没有应用能打开 APK", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
+                        }
+                    }
+                    checkingUpdate = false
+                }
+            }
+        },
+        openLink = { url ->
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(url),
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.onFailure {
+                Toast.makeText(context, "没有浏览器能打开链接", Toast.LENGTH_SHORT).show()
+            }
+        },
         info = info,
         xiaoaiVersion = xiaoaiVersion,
         moduleVersion = moduleVersion,
@@ -613,8 +669,30 @@ private fun AboutPage(state: UiState, bottomPadding: Dp) {
         Section("更新") {
             ArrowPreference(
                 title = "获取更新",
-                summary = "选一个 APK 交给系统安装器",
+                summary = "检查 GitHub Releases 并交给系统安装器",
+                onClick = state.checkUpdate,
+            )
+            ArrowPreference(
+                title = "从本地 APK 安装",
+                summary = "离线时用，选一个 APK 交给系统安装器",
                 onClick = state.pickUpdate,
+            )
+        }
+        Section("链接") {
+            ArrowPreference(
+                title = "项目地址",
+                summary = "github.com/${UpdateApi.REPO}",
+                onClick = { state.openLink("https://github.com/${UpdateApi.REPO}") },
+            )
+            ArrowPreference(
+                title = "问题反馈",
+                summary = "Issues · 附上日志与版本号",
+                onClick = { state.openLink("https://github.com/${UpdateApi.REPO}/issues") },
+            )
+            ArrowPreference(
+                title = "更新日志",
+                summary = "Releases",
+                onClick = { state.openLink("https://github.com/${UpdateApi.REPO}/releases") },
             )
         }
         Section("关于") {
