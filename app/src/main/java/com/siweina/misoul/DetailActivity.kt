@@ -72,7 +72,14 @@ enum class Field(
     Soul("soul", "人格全文", "整份替换 soul.md 的人格设定", PersonaHook.KEY_SOUL, true),
     ProfileName("profile_name", "显示名", "界面上助手叫什么", PersonaHook.KEY_PROFILE_NAME, false),
     Signature("signature", "签名", "显示名下面那行字", PersonaHook.KEY_PROFILE_SIGNATURE, false),
-    Welcome("welcome", "欢迎语", "新对话的开场白", PersonaHook.KEY_PROFILE_WELCOME, false);
+    Welcome("welcome", "欢迎语", "新对话的开场白", PersonaHook.KEY_PROFILE_WELCOME, false),
+    TextMap(
+        "text_map",
+        "文案替换",
+        "一行一条「原文=新词」，只匹配完全相同的整句",
+        PersonaHook.KEY_TEXT_MAP,
+        true,
+    );
 
     companion object {
         fun from(id: String?): Field = entries.firstOrNull { it.id == id } ?: Name
@@ -89,6 +96,7 @@ private fun DetailScreen(field: Field, onDone: () -> Unit) {
         Field.ProfileName -> PersonaHook.DEFAULT_PROFILE_NAME
         Field.Signature -> PersonaHook.DEFAULT_PROFILE_SIGNATURE
         Field.Welcome -> PersonaHook.DEFAULT_PROFILE_WELCOME
+        Field.TextMap -> ""
     }
     var value by remember {
         mutableStateOf(prefs.getString(field.prefKey, null) ?: fallback)

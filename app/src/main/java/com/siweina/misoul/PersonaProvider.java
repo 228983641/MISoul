@@ -39,6 +39,7 @@ public final class PersonaProvider extends ContentProvider {
                 prefs.getString(PersonaHook.KEY_PROFILE_SIGNATURE, PersonaHook.DEFAULT_PROFILE_SIGNATURE));
         bundle.putString(PersonaHook.KEY_PROFILE_WELCOME,
                 prefs.getString(PersonaHook.KEY_PROFILE_WELCOME, PersonaHook.DEFAULT_PROFILE_WELCOME));
+        bundle.putString(PersonaHook.KEY_TEXT_MAP, prefs.getString(PersonaHook.KEY_TEXT_MAP, ""));
         return bundle;
     }
 

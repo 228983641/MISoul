@@ -117,6 +117,7 @@ private class UiState(
     val profileName: String,
     val signature: String,
     val welcome: String,
+    val textMap: String,
     val open: (Field) -> Unit,
     val reset: () -> Unit,
     val iconHidden: Boolean,
@@ -165,6 +166,7 @@ private fun App(refreshTick: Int) {
     var profileName by remember { mutableStateOf("") }
     var signature by remember { mutableStateOf("") }
     var welcome by remember { mutableStateOf("") }
+    var textMap by remember { mutableStateOf("") }
 
     val sync: () -> Unit = {
         name = prefs.getString(PersonaHook.KEY_NAME, null) ?: PersonaHook.DEFAULT_NAME
@@ -175,6 +177,7 @@ private fun App(refreshTick: Int) {
             ?: PersonaHook.DEFAULT_PROFILE_SIGNATURE
         welcome = prefs.getString(PersonaHook.KEY_PROFILE_WELCOME, null)
             ?: PersonaHook.DEFAULT_PROFILE_WELCOME
+        textMap = prefs.getString(PersonaHook.KEY_TEXT_MAP, null).orEmpty()
     }
     remember(refreshTick) { sync() }
 
@@ -218,6 +221,7 @@ private fun App(refreshTick: Int) {
         profileName = profileName,
         signature = signature,
         welcome = welcome,
+        textMap = textMap,
         open = { field -> context.startActivity(DetailActivity.intent(context, field)) },
         reset = { confirmReset = true },
         iconHidden = iconHidden,
@@ -552,6 +556,15 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 title = "人格全文",
                 summary = "${state.soul.length} 字 · 点按编辑",
                 onClick = { state.open(Field.Soul) },
+            )
+            ArrowPreference(
+                title = "文案替换",
+                summary = if (state.textMap.isBlank()) {
+                    "改开场白、「小爱陪伴」这类固定文案"
+                } else {
+                    "${state.textMap.lines().count { it.isNotBlank() }} 条"
+                },
+                onClick = { state.open(Field.TextMap) },
             )
         }
         Section("形象") {

@@ -41,6 +41,8 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_PROFILE_NAME = "profile_name";
     public static final String KEY_PROFILE_SIGNATURE = "profile_signature";
     public static final String KEY_PROFILE_WELCOME = "profile_welcome";
+    /** 用户自定义文案替换，一行一条「原文=新词」。 */
+    public static final String KEY_TEXT_MAP = "text_map";
 
     public static final String DEFAULT_NAME = "DeepSeek（日常被叫大肥鱼）";
     public static final String DEFAULT_PROFILE_NAME = "大肥鱼";
@@ -70,6 +72,8 @@ public final class PersonaHook extends XposedModule {
     private volatile Constructor<?> profileConstructor;
     private volatile String lastLoggedName;
     private volatile String lastLoggedText;
+    private volatile java.util.Map<String, String> cachedTextMap;
+    private volatile String cachedTextMapStamp;
 
     @Override
     public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -136,29 +140,11 @@ public final class PersonaHook extends XposedModule {
         Class<?> textView = Class.forName("android.widget.TextView");
         Method setText = textView.getDeclaredMethod("setText", CharSequence.class);
         hook(setText).intercept(chain -> {
-            Object arg = chain.getArg(0);
-            if (!(arg instanceof CharSequence cs)) return chain.proceed();
-            String text = cs.toString();
-            if (text.length() != BRAND_NAME.length() || !text.equals(BRAND_NAME)) {
-                return chain.proceed();
-            }
-            Bundle config = config();
-            if (config == null || !config.getBoolean(KEY_ENABLED, false)
-                    || !config.getBoolean(KEY_PROFILE_ENABLED, true)) {
-                return chain.proceed();
-            }
-            String name = config.getString(KEY_PROFILE_NAME, DEFAULT_PROFILE_NAME);
-            if (name == null || name.trim().isEmpty()) return chain.proceed();
-            if (!name.equals(lastLoggedText)) {
-                lastLoggedText = name;
-                log(Log.INFO, TAG, "brand TextView text -> " + name);
-            }
-            return chain.proceed(new Object[]{name});
+            String replacement = textReplacement(chain.getArg(0));
+            return replacement == null ? chain.proceed() : chain.proceed(new Object[]{replacement});
         });
-        log(Log.INFO, TAG, "hooking TextView.setText (brand name)");
 
-        // 有些地方是用 setText(resId) / 带 BufferType 的重载、甚至直接从 Resources 取文本，
-        // 这两层也一起兜住（只替换完全等于品牌名的串）。
+        // 有些地方用 setText(resId) / 带 BufferType 的重载
         Method setTextTyped = null;
         for (Method m : textView.getDeclaredMethods()) {
             if ("setText".equals(m.getName()) && m.getParameterCount() == 2
@@ -170,9 +156,10 @@ public final class PersonaHook extends XposedModule {
         if (setTextTyped != null) {
             final Method target = setTextTyped;
             hook(target).intercept(chain -> {
-                Object arg = chain.getArg(0);
-                String replacement = brandReplacement(arg);
-                return replacement == null ? chain.proceed() : chain.proceed(new Object[]{replacement, chain.getArg(1)});
+                String replacement = textReplacement(chain.getArg(0));
+                return replacement == null
+                        ? chain.proceed()
+                        : chain.proceed(new Object[]{replacement, chain.getArg(1)});
             });
         }
 
@@ -185,31 +172,81 @@ public final class PersonaHook extends XposedModule {
                 }
                 hook(m).intercept(chain -> {
                     Object result = chain.proceed();
-                    String replacement = brandReplacement(result);
+                    String replacement = textReplacement(result);
                     return replacement == null ? result : replacement;
                 });
             }
         }
-        log(Log.INFO, TAG, "hooking Resources.getText/getString (brand name)");
+
+        // 开场白是一组随机候选（字符串数组），必须单独处理 getStringArray
+        for (Method m : resources.getDeclaredMethods()) {
+            if (!"getStringArray".equals(m.getName()) || m.getParameterCount() != 1
+                    || m.getParameterTypes()[0] != int.class) {
+                continue;
+            }
+            hook(m).intercept(chain -> {
+                Object result = chain.proceed();
+                if (!(result instanceof String[] array)) return result;
+                java.util.Map<String, String> map = textMap();
+                if (map.isEmpty()) return result;
+                String[] copy = null;
+                for (int i = 0; i < array.length; i++) {
+                    String hit = map.get(array[i]);
+                    if (hit != null && !hit.equals(array[i])) {
+                        if (copy == null) copy = array.clone();
+                        copy[i] = hit;
+                    }
+                }
+                return copy == null ? result : copy;
+            });
+        }
+        log(Log.INFO, TAG, "hooking TextView/Resources 文案替换");
     }
 
-    /** 命中品牌名时返回要显示的文本，否则 null。 */
-    private String brandReplacement(Object candidate) {
+    /** 命中映射时返回替换文本，否则 null。 */
+    private String textReplacement(Object candidate) {
         if (!(candidate instanceof CharSequence cs)) return null;
-        String text = cs.toString();
-        if (text.length() != BRAND_NAME.length() || !text.equals(BRAND_NAME)) return null;
+        java.util.Map<String, String> map = textMap();
+        if (map.isEmpty()) return null;
+        return map.get(cs.toString());
+    }
+
+    /**
+     * 文案映射：「超级小爱 → 显示名」是内置的，另外解析用户在「文案替换」里写的
+     * 「原文=新词」，用户写的覆盖内置。
+     */
+    private java.util.Map<String, String> textMap() {
         Bundle config = config();
         if (config == null || !config.getBoolean(KEY_ENABLED, false)
                 || !config.getBoolean(KEY_PROFILE_ENABLED, true)) {
-            return null;
+            return java.util.Collections.emptyMap();
         }
+        String raw = config.getString(KEY_TEXT_MAP, "");
         String name = config.getString(KEY_PROFILE_NAME, DEFAULT_PROFILE_NAME);
-        if (name == null || name.trim().isEmpty()) return null;
-        if (!name.equals(lastLoggedText)) {
-            lastLoggedText = name;
-            log(Log.INFO, TAG, "brand text -> " + name);
+        String stamp = (raw == null ? "" : raw) + "\u0000" + (name == null ? "" : name);
+        if (stamp.equals(cachedTextMapStamp) && cachedTextMap != null) {
+            return cachedTextMap;
         }
-        return name;
+
+        java.util.LinkedHashMap<String, String> map = new java.util.LinkedHashMap<>();
+        if (name != null && !name.trim().isEmpty()) {
+            map.put(BRAND_NAME, name);
+        }
+        if (raw != null) {
+            for (String line : raw.split("\n")) {
+                String entry = line.trim();
+                if (entry.isEmpty() || entry.startsWith("#")) continue;
+                int eq = entry.indexOf('=');
+                if (eq <= 0) continue;
+                String from = entry.substring(0, eq).trim();
+                String to = entry.substring(eq + 1).trim();
+                if (!from.isEmpty()) map.put(from, to);
+            }
+        }
+        cachedTextMap = map;
+        cachedTextMapStamp = stamp;
+        if (map.size() > 1) log(Log.INFO, TAG, "文案映射 " + map.size() + " 条");
+        return map;
     }
 
     /**
