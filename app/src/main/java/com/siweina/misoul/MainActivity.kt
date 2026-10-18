@@ -154,10 +154,9 @@ private fun App(refreshTick: Int) {
         mutableStateOf(prefs.getBoolean(PersonaHook.KEY_PROFILE_ENABLED, true))
     }
     var confirmReset by remember { mutableStateOf(false) }
-    var tabJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // 底栏高亮自己记：只认「点击」和「滑完落定」，不跟 currentPage/targetPage，
-    // 否则跨页滚动经过每一页时它都会动一次，玻璃每动一次就要重画。
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // 底栏高亮与滚动都以「目标页」为准：点击立刻改，手势滑完落定后同步。
+    var targetTab by remember { mutableIntStateOf(0) }
+    var programmaticScroll by remember { mutableStateOf(false) }
     var pageWidthPx by remember { mutableStateOf(0f) }
     var checkingUpdate by remember { mutableStateOf(false) }
 
@@ -304,10 +303,45 @@ private fun App(refreshTick: Int) {
     val canBlur = Build.VERSION.SDK_INT >= 33 && isRuntimeShaderSupported()
 
 
-    // 滑动（含手势拖拽）落定后才同步底栏高亮；程序化的跨页滚动不算
+    // 底栏高亮 = 目标页。点击立刻改，手势滑动落定后同步；不再跟 currentPage/targetPage 走，
+    // 否则跨页滚动经过每一页都会让它动一次，玻璃每动一次就要重画一遍。
     androidx.compose.runtime.LaunchedEffect(pagerState) {
         androidx.compose.runtime.snapshotFlow { pagerState.settledPage }
-            .collect { page -> selectedTab = page }
+            .collect { page ->
+                // 程序化滚动被打断时 pager 会在中间页短暂落定，这时不能把目标页拽回去
+                if (!programmaticScroll) targetTab = page
+            }
+    }
+
+    // 由「目标页」驱动滚动，而不是在点击时算一次距离：
+    // 上一次动画被取消时 pager 可能停在两页中间，若基于 currentPage 重算就会从错误起点出发，
+    // 表现为「胶囊动了页面没动」。这里每帧都按当前实际偏移算剩余距离，天然能续上。
+    androidx.compose.runtime.LaunchedEffect(targetTab, pageWidthPx) {
+        val width = pageWidthPx
+        if (width <= 0f) return@LaunchedEffect
+        val target = targetTab
+        val current = pagerState.currentPage + pagerState.currentPageOffsetFraction
+        val distance = target - current
+        if (kotlin.math.abs(distance) < 0.01f) return@LaunchedEffect
+        programmaticScroll = true
+        try {
+            pagerState.scroll {
+                var consumed = 0f
+                androidx.compose.animation.core.animate(
+                    initialValue = 0f,
+                    targetValue = distance * width,
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = (240 + 90 * kotlin.math.abs(distance)).toInt(),
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
+                ) { value, _ ->
+                    scrollBy(value - consumed)
+                    consumed = value
+                }
+            }
+        } finally {
+            programmaticScroll = false
+        }
     }
 
     Scaffold(
@@ -315,50 +349,8 @@ private fun App(refreshTick: Int) {
             IosLiquidGlassNavigationBar(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 items = items,
-                // 高亮只认点击与「滑完落定」：跟 currentPage/targetPage 的话，
-                // 跨页滚动经过每一页都会让它动一次，玻璃每动一次就要重画一遍。
-                selectedIndex = selectedTab,
-                onItemClick = { index ->
-                    selectedTab = index
-                    if (index != pagerState.currentPage) {
-                        tabJob?.cancel()
-                        tabJob = scope.launch {
-                            val distance = index - pagerState.currentPage
-                            if (kotlin.math.abs(distance) <= 1) {
-                                pagerState.animateScrollToPage(
-                                    index,
-                                    animationSpec = androidx.compose.animation.core.spring(
-                                        dampingRatio = 1f,
-                                        stiffness = 320f,
-                                    ),
-                                )
-                            } else {
-                                // animateScrollToPage 自带「预跳」优化：距离超过一页时它会先
-                                // 瞬间贴到目标前一页再动画最后一步（实测 0→3 时 currentPage
-                                // 5ms 内就变成 2）。要真正的多页滑动只能自己驱动 offset。
-                                val pageSize = pageWidthPx
-                                if (pageSize <= 0f) {
-                                    pagerState.scrollToPage(index)
-                                    return@launch
-                                }
-                                pagerState.scroll {
-                                    var consumed = 0f
-                                    androidx.compose.animation.core.animate(
-                                        initialValue = 0f,
-                                        targetValue = distance * pageSize,
-                                        animationSpec = androidx.compose.animation.core.tween(
-                                            durationMillis = 240 + 90 * kotlin.math.abs(distance),
-                                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                                        ),
-                                    ) { value, _ ->
-                                        scrollBy(value - consumed)
-                                        consumed = value
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
+                selectedIndex = targetTab,
+                onItemClick = { index -> targetTab = index },
                 backdrop = backdrop,
                 isBlurActive = canBlur,
             )
@@ -572,16 +564,6 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 title = "显示名",
                 summary = state.profileName.ifBlank { "未设置" },
                 onClick = { state.open(Field.ProfileName) },
-            )
-            ArrowPreference(
-                title = "签名",
-                summary = state.signature.ifBlank { "未设置" },
-                onClick = { state.open(Field.Signature) },
-            )
-            ArrowPreference(
-                title = "欢迎语",
-                summary = state.welcome.ifBlank { "未设置" },
-                onClick = { state.open(Field.Welcome) },
             )
         }
         Section("开关") {

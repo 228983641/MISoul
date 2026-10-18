@@ -71,8 +71,6 @@ enum class Field(
     Name("name", "自称", "写进 prompt.md 的身份修正句", PersonaHook.KEY_NAME, false),
     Soul("soul", "人格全文", "整份替换 soul.md 的人格设定", PersonaHook.KEY_SOUL, true),
     ProfileName("profile_name", "显示名", "界面上助手叫什么", PersonaHook.KEY_PROFILE_NAME, false),
-    Signature("signature", "签名", "显示名下面那行字", PersonaHook.KEY_PROFILE_SIGNATURE, false),
-    Welcome("welcome", "欢迎语", "新对话的开场白", PersonaHook.KEY_PROFILE_WELCOME, false),
     TextMap(
         "text_map",
         "文案替换",
@@ -94,8 +92,6 @@ private fun DetailScreen(field: Field, onDone: () -> Unit) {
         Field.Name -> PersonaHook.DEFAULT_NAME
         Field.Soul -> readAsset(context, "soul.default.md")
         Field.ProfileName -> PersonaHook.DEFAULT_PROFILE_NAME
-        Field.Signature -> PersonaHook.DEFAULT_PROFILE_SIGNATURE
-        Field.Welcome -> PersonaHook.DEFAULT_PROFILE_WELCOME
         Field.TextMap -> ""
     }
     var value by remember {
