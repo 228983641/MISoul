@@ -43,6 +43,24 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_PROFILE_WELCOME = "profile_welcome";
     /** 用户自定义文案替换，一行一条「原文=新词」。 */
     public static final String KEY_TEXT_MAP = "text_map";
+    /** 追加到系统提示末尾的语气契约。 */
+    public static final String KEY_STYLE_CONTRACT = "style_contract";
+    /** 是否对工具描述做瘦身。 */
+    public static final String KEY_TOOL_TRIM = "tool_trim";
+    /** 单个工具的描述覆盖，一行一条「工具名=新描述」。 */
+    public static final String KEY_TOOL_OVERRIDES = "tool_overrides";
+
+    /** 契约里自带的标记，用来避免重复追加。 */
+    private static final String STYLE_MARKER = "【语气契约】";
+
+    public static final String DEFAULT_STYLE_CONTRACT =
+            "下面是硬性语气要求，优先于上面任何设定：\n"
+                    + "1. 说话像熟人发消息：短句为主，一条尽量不超过 40 字，能一句说完就别分点。\n"
+                    + "2. 禁止书面语与客服腔：不要用「首先/其次/最后/综上所述/此外/值得注意的是」"
+                    + "，不要出现「希望对你有帮助」「作为 AI」「建议您」这类句式，不要用「您」。\n"
+                    + "3. 不要动不动列清单或加小标题；只有对方明确要步骤、要对比时才用列表。\n"
+                    + "4. 允许口语、语气词和碎片句（如「诶」「行吧」「草」），该吐槽就吐槽，别端着。\n"
+                    + "5. 仍然保持人格设定里的自称、称呼和性格，别因为这条要求变成另一个人。";
 
     public static final String DEFAULT_NAME = "DeepSeek（日常被叫大肥鱼）";
     public static final String DEFAULT_PROFILE_NAME = "大肥鱼";
@@ -72,6 +90,10 @@ public final class PersonaHook extends XposedModule {
     private volatile Constructor<?> profileConstructor;
     private volatile String lastLoggedName;
     private volatile String lastLoggedText;
+    private volatile boolean contractLogged;
+    private volatile boolean toolTrimLogged;
+    private volatile java.util.Map<String, String> cachedOverrides;
+    private volatile String cachedOverridesRaw;
     private volatile java.util.Map<String, String> cachedTextMap;
     private volatile String cachedTextMapStamp;
 
@@ -121,6 +143,16 @@ public final class PersonaHook extends XposedModule {
             hookBrandText();
         } catch (Throwable failure) {
             log(Log.ERROR, TAG, "text hook skipped: " + failure);
+        }
+        try {
+            hookStyleContract(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "style contract skipped: " + failure);
+        }
+        try {
+            hookToolDescription(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "tool trim skipped: " + failure);
         }
 
         synchronized (installLock) {
@@ -300,6 +332,133 @@ public final class PersonaHook extends XposedModule {
             }
         });
         log(Log.INFO, TAG, "hooking AssetManager.open (config.json name)");
+    }
+
+    /**
+     * 语气契约：追加到最终系统提示的末尾。
+     *
+     * 小爱的系统提示由 soul/prompt/security/bootstrap 等片段拼成，工具定义作为 function-calling
+     * 的 tools 数组跟在后面，模型对结尾更敏感，所以这段短契约放在最后比写在开头更管用。
+     */
+    private void hookStyleContract(ClassLoader loader) throws Exception {
+        // 这个方法在运行时的 agent 对象 ck.d0 上，不在 AgentDefinition 上
+        Class<?> agent = Class.forName("ck.d0", false, loader);
+        Method getPrompt = agent.getDeclaredMethod("getResolvedSystemPrompt");
+        hook(getPrompt).intercept(chain -> {
+            Object result = chain.proceed();
+            Bundle config = config();
+            if (config == null || !config.getBoolean(KEY_ENABLED, false)) return result;
+            String contract = config.getString(KEY_STYLE_CONTRACT, DEFAULT_STYLE_CONTRACT);
+            if (contract == null || contract.trim().isEmpty()) return result;
+            if (!(result instanceof String base)) return result;
+            if (base.contains(STYLE_MARKER)) return result;
+            if (!contractLogged) {
+                contractLogged = true;
+                log(Log.INFO, TAG, "语气契约已追加（" + contract.length() + " 字）");
+            }
+            return base + "\n\n" + STYLE_MARKER + "\n" + contract.trim();
+        });
+        log(Log.INFO, TAG, "hooking ck.d0.getResolvedSystemPrompt (语气契约)");
+    }
+
+    /**
+     * 工具描述瘦身：只改 description，参数 schema 一个字节都不动。
+     *
+     * 保留：含格式字面量（格式/必须/必填/枚举/经度/纬度/ISO）和适用边界的行
+     *       （不适用/仅用于/不要用于）——这些一旦删掉模型就会瞎猜参数、用错工具。
+     * 丢弃：示例、⚠️ 提醒、重复语气、长场景描写。
+     */
+    private void hookToolDescription(ClassLoader loader) throws Exception {
+        Class<?> toolDefinition = Class.forName("com.aios.osbot.llm.model.ToolDefinition", false, loader);
+        Method getDescription = toolDefinition.getDeclaredMethod("getDescription");
+        Method getName = toolDefinition.getDeclaredMethod("getName");
+        hook(getDescription).intercept(chain -> {
+            Object result = chain.proceed();
+            if (!(result instanceof String original) || original.isEmpty()) return result;
+            Bundle config = config();
+            if (config == null || !config.getBoolean(KEY_ENABLED, false)) return result;
+
+            String name;
+            try {
+                name = String.valueOf(getName.invoke(chain.getThisObject()));
+            } catch (Throwable ignored) {
+                name = "";
+            }
+
+            String override = toolOverrides(config).get(name);
+            if (override != null) return override;
+            if (!config.getBoolean(KEY_TOOL_TRIM, true)) return result;
+
+            String compressed = compressToolDescription(original);
+            if (!compressed.equals(original) && !toolTrimLogged) {
+                toolTrimLogged = true;
+                log(Log.INFO, TAG, "工具描述瘦身：例 " + name + " " + original.length()
+                        + " -> " + compressed.length() + " 字");
+            }
+            return compressed;
+        });
+        log(Log.INFO, TAG, "hooking ToolDefinition.getDescription (工具描述瘦身)");
+    }
+
+    private static boolean isNoiseLine(String line) {
+        String l = line.toLowerCase(java.util.Locale.ROOT);
+        return l.contains("示例")
+                || l.contains("例如")
+                || l.contains("比如")
+                || l.contains("example")
+                || l.contains("⚠")
+                || l.contains("注意")
+                || l.contains("温馨提示")
+                || l.contains("建议")
+                || l.startsWith("//");
+    }
+
+    private static boolean hasLiteralRequirement(String line) {
+        return line.contains("格式")
+                || line.contains("必须")
+                || line.contains("必填")
+                || line.contains("可选")
+                || line.contains("枚举")
+                || line.contains("取值")
+                || line.contains("经度")
+                || line.contains("纬度")
+                || line.contains("iso")
+                || line.contains("ISO")
+                || line.contains("不适用")
+                || line.contains("仅用于")
+                || line.contains("不要用于")
+                || line.contains("只用于")
+                || line.contains("适用于");
+    }
+
+    private static String compressToolDescription(String text) {
+        StringBuilder builder = new StringBuilder();
+        for (String raw : text.split("\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            boolean keep = !isNoiseLine(line) || hasLiteralRequirement(line);
+            if (!keep) continue;
+            builder.append(line).append('\n');
+        }
+        String out = builder.toString().trim();
+        return out.isEmpty() ? text : out;
+    }
+
+    private java.util.Map<String, String> toolOverrides(Bundle config) {
+        String raw = config.getString(KEY_TOOL_OVERRIDES, "");
+        if (raw == null) raw = "";
+        if (raw.equals(cachedOverridesRaw) && cachedOverrides != null) return cachedOverrides;
+        java.util.LinkedHashMap<String, String> map = new java.util.LinkedHashMap<>();
+        for (String line : raw.split("\n")) {
+            String entry = line.trim();
+            if (entry.isEmpty() || entry.startsWith("#")) continue;
+            int eq = entry.indexOf('=');
+            if (eq <= 0) continue;
+            map.put(entry.substring(0, eq).trim(), entry.substring(eq + 1).trim());
+        }
+        cachedOverrides = map;
+        cachedOverridesRaw = raw;
+        return map;
     }
 
     private void hookAgentName(ClassLoader loader) throws Exception {

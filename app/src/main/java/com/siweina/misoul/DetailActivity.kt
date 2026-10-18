@@ -77,6 +77,13 @@ enum class Field(
         "一行一条「原文=新词」，只匹配完全相同的整句",
         PersonaHook.KEY_TEXT_MAP,
         true,
+    ),
+    StyleContract(
+        "style_contract",
+        "语气契约",
+        "追加在系统提示最末尾，用来压住工具描述带来的官腔",
+        PersonaHook.KEY_STYLE_CONTRACT,
+        true,
     );
 
     companion object {
@@ -93,6 +100,7 @@ private fun DetailScreen(field: Field, onDone: () -> Unit) {
         Field.Soul -> readAsset(context, "soul.default.md")
         Field.ProfileName -> PersonaHook.DEFAULT_PROFILE_NAME
         Field.TextMap -> ""
+        Field.StyleContract -> PersonaHook.DEFAULT_STYLE_CONTRACT
     }
     var value by remember {
         mutableStateOf(prefs.getString(field.prefKey, null) ?: fallback)

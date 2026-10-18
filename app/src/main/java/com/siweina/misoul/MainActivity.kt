@@ -118,6 +118,9 @@ private class UiState(
     val signature: String,
     val welcome: String,
     val textMap: String,
+    val styleContract: String,
+    val toolTrim: Boolean,
+    val setToolTrim: (Boolean) -> Unit,
     val open: (Field) -> Unit,
     val reset: () -> Unit,
     val iconHidden: Boolean,
@@ -166,6 +169,10 @@ private fun App(refreshTick: Int) {
     var signature by remember { mutableStateOf("") }
     var welcome by remember { mutableStateOf("") }
     var textMap by remember { mutableStateOf("") }
+    var styleContract by remember { mutableStateOf("") }
+    var toolTrim by rememberSaveable {
+        mutableStateOf(prefs.getBoolean(PersonaHook.KEY_TOOL_TRIM, true))
+    }
 
     val sync: () -> Unit = {
         name = prefs.getString(PersonaHook.KEY_NAME, null) ?: PersonaHook.DEFAULT_NAME
@@ -177,6 +184,8 @@ private fun App(refreshTick: Int) {
         welcome = prefs.getString(PersonaHook.KEY_PROFILE_WELCOME, null)
             ?: PersonaHook.DEFAULT_PROFILE_WELCOME
         textMap = prefs.getString(PersonaHook.KEY_TEXT_MAP, null).orEmpty()
+        styleContract = prefs.getString(PersonaHook.KEY_STYLE_CONTRACT, null)
+            ?: PersonaHook.DEFAULT_STYLE_CONTRACT
     }
     remember(refreshTick) { sync() }
 
@@ -221,6 +230,12 @@ private fun App(refreshTick: Int) {
         signature = signature,
         welcome = welcome,
         textMap = textMap,
+        styleContract = styleContract,
+        toolTrim = toolTrim,
+        setToolTrim = {
+            toolTrim = it
+            prefs.edit().putBoolean(PersonaHook.KEY_TOOL_TRIM, it).apply()
+        },
         open = { field -> context.startActivity(DetailActivity.intent(context, field)) },
         reset = { confirmReset = true },
         iconHidden = iconHidden,
@@ -550,6 +565,11 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 onClick = { state.open(Field.Soul) },
             )
             ArrowPreference(
+                title = "语气契约",
+                summary = "${state.styleContract.length} 字 · 追加在系统提示末尾",
+                onClick = { state.open(Field.StyleContract) },
+            )
+            ArrowPreference(
                 title = "文案替换",
                 summary = if (state.textMap.isBlank()) {
                     "改开场白、「小爱陪伴」这类固定文案"
@@ -584,6 +604,12 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 summary = "改 config.json / profile / 品牌文案",
                 checked = state.profileEnabled,
                 onCheckedChange = state.setProfileEnabled,
+            )
+            SwitchPreference(
+                title = "工具描述瘦身",
+                summary = "只删示例与提醒，参数格式和适用边界保留",
+                checked = state.toolTrim,
+                onCheckedChange = state.setToolTrim,
             )
         }
         Hint("整份替换 soul.md；身份句只改 prompt.md 里那一句，其余硬规则不动。")

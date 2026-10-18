@@ -40,6 +40,12 @@ public final class PersonaProvider extends ContentProvider {
         bundle.putString(PersonaHook.KEY_PROFILE_WELCOME,
                 prefs.getString(PersonaHook.KEY_PROFILE_WELCOME, PersonaHook.DEFAULT_PROFILE_WELCOME));
         bundle.putString(PersonaHook.KEY_TEXT_MAP, prefs.getString(PersonaHook.KEY_TEXT_MAP, ""));
+        bundle.putString(PersonaHook.KEY_STYLE_CONTRACT,
+                prefs.getString(PersonaHook.KEY_STYLE_CONTRACT, PersonaHook.DEFAULT_STYLE_CONTRACT));
+        bundle.putBoolean(PersonaHook.KEY_TOOL_TRIM,
+                prefs.getBoolean(PersonaHook.KEY_TOOL_TRIM, true));
+        bundle.putString(PersonaHook.KEY_TOOL_OVERRIDES,
+                prefs.getString(PersonaHook.KEY_TOOL_OVERRIDES, ""));
         return bundle;
     }
 
