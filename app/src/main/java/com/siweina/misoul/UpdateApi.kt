@@ -127,7 +127,7 @@ object UpdateApi {
         return connection.inputStream.bufferedReader().use { it.readText() }
     }
 
-    /** 只比较数字段：0.2.1 > 0.2.0，1.0 > 0.9.9。 */
+    /** 只比较数字段：0.2.1 > 0.2.0，1.0 > 0.9.9；后缀（-beta.1）不参与，否则 0.2.1-beta.1 会被判成比 0.2.1 新。 */
     internal fun isNewer(remote: String, local: String): Boolean {
         val a = numbers(remote)
         val b = numbers(local)
@@ -140,6 +140,9 @@ object UpdateApi {
     }
 
     private fun numbers(version: String): List<Int> =
-        version.trim().removePrefix("v").split(".", "-", "+")
-            .mapNotNull { part -> part.takeWhile { it.isDigit() }.toIntOrNull() }
+        version.trim().removePrefix("v")
+            .substringBefore("-")
+            .substringBefore("+")
+            .split(".")
+            .mapNotNull { it.toIntOrNull() }
 }
