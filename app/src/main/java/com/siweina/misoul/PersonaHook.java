@@ -49,6 +49,8 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_TOOL_TRIM = "tool_trim";
     /** 单个工具的描述覆盖，一行一条「工具名=新描述」。 */
     public static final String KEY_TOOL_OVERRIDES = "tool_overrides";
+    /** 随包发布的内置精简描述（`### 工具名` 分块），由 ContentProvider 读 assets 传过来。 */
+    public static final String KEY_TOOL_DEFAULTS = "tool_defaults";
     /** 自定义的 tool_selection_rules.md；空 = 用官方那份。 */
     public static final String KEY_RULES_TEXT = "rules_text";
     /** 工具描述深度压缩（实验）：按块打分 + 每工具硬上限。 */
@@ -141,6 +143,8 @@ public final class PersonaHook extends XposedModule {
     private static volatile java.lang.reflect.Method jsonParse;
     private volatile boolean jsonRebuildWarned;
     private volatile java.util.Map<String, String> cachedOverrides;
+    private volatile java.util.Map<String, String> cachedBuiltin;
+    private volatile String cachedBuiltinRaw;
     private volatile String cachedOverridesRaw;
     private volatile java.util.Map<String, String> cachedTextMap;
     private volatile String cachedTextMapStamp;
@@ -445,6 +449,7 @@ public final class PersonaHook extends XposedModule {
             }
 
             String override = toolOverrides(config).get(name);
+            if (override == null) override = builtinOverrides(config).get(name);
             String finalText = result instanceof String s ? s : original;
             if (override != null) {
                 finalText = override;
@@ -505,8 +510,8 @@ public final class PersonaHook extends XposedModule {
                 if (!deep && !trim) return result;
 
                 String text = result.toString();
-                if (text.length() < 1200) return result;   // 参数表本来就短，别动
-                String shrunk = trimParameterDescriptions(text, deep ? 160 : 320);
+                if (text.length() < 400) return result;   // 参数表本来就短，别动
+                String shrunk = trimParameterDescriptions(text, deep ? 120 : 240);
                 if (shrunk.equals(text)) return result;
 
                 Object rebuilt = buildJsonElement(shrunk);
@@ -725,6 +730,29 @@ public final class PersonaHook extends XposedModule {
         return false;
     }
 
+    /** 解析随包内置的精简描述表（`### 工具名` 起块，块内为描述正文）。 */
+    private java.util.Map<String, String> builtinOverrides(Bundle config) {
+        String raw = config.getString(KEY_TOOL_DEFAULTS, "");
+        if (raw == null) raw = "";
+        if (raw.equals(cachedBuiltinRaw) && cachedBuiltin != null) return cachedBuiltin;
+        java.util.LinkedHashMap<String, String> map = new java.util.LinkedHashMap<>();
+        String current = null;
+        StringBuilder body = new StringBuilder();
+        for (String line : raw.split("\n")) {
+            if (line.startsWith("### ")) {
+                if (current != null) map.put(current, body.toString().trim());
+                current = line.substring(4).trim();
+                body.setLength(0);
+            } else if (current != null) {
+                body.append(line).append('\n');
+            }
+        }
+        if (current != null) map.put(current, body.toString().trim());
+        map.values().removeIf(String::isEmpty);
+        cachedBuiltin = map;
+        cachedBuiltinRaw = raw;
+        return map;
+    }
     private java.util.Map<String, String> toolOverrides(Bundle config) {
         String raw = config.getString(KEY_TOOL_OVERRIDES, "");
         if (raw == null) raw = "";

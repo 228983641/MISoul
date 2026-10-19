@@ -44,6 +44,8 @@ public final class PersonaProvider extends ContentProvider {
                 prefs.getString(PersonaHook.KEY_STYLE_CONTRACT, PersonaHook.DEFAULT_STYLE_CONTRACT));
         bundle.putBoolean(PersonaHook.KEY_TOOL_TRIM,
                 prefs.getBoolean(PersonaHook.KEY_TOOL_TRIM, true));
+        bundle.putString(PersonaHook.KEY_TOOL_DEFAULTS,
+                readAsset("tool_overrides.default.txt"));
         bundle.putString(PersonaHook.KEY_RULES_TEXT,
                 prefs.getString(PersonaHook.KEY_RULES_TEXT, ""));
         bundle.putBoolean(PersonaHook.KEY_TOOL_DEEP,
@@ -51,6 +53,19 @@ public final class PersonaProvider extends ContentProvider {
         bundle.putString(PersonaHook.KEY_TOOL_OVERRIDES,
                 prefs.getString(PersonaHook.KEY_TOOL_OVERRIDES, ""));
         return bundle;
+    }
+
+    private String readAsset(String name) {
+        try (java.io.InputStream in = getContext().getAssets().open(name);
+             java.io.BufferedReader reader =
+                     new java.io.BufferedReader(new java.io.InputStreamReader(in, "UTF-8"))) {
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) builder.append(line).append('\n');
+            return builder.toString();
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     @Override
