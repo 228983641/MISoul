@@ -706,8 +706,9 @@ public final class PersonaHook extends XposedModule {
     private void dumpContext(Object context) {
         try {
             StringBuilder out = new StringBuilder("sj.e 字段：");
-            for (java.lang.reflect.Field field : context.getClass().getFields()) {
-                Object value = null;
+            for (java.lang.reflect.Field field : context.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value;
                 try {
                     value = field.get(context);
                 } catch (Throwable ignored) {
@@ -720,7 +721,7 @@ public final class PersonaHook extends XposedModule {
                     if (!list.isEmpty()) {
                         Object first = list.get(0);
                         out.append(" first=")
-                                .append(first == null ? "null" : first.getClass().getSimpleName());
+                                .append(first == null ? "null" : first.getClass().getName());
                     }
                 } else if (value instanceof String s) {
                     out.append(" = ").append(abbreviate(s));
@@ -733,22 +734,32 @@ public final class PersonaHook extends XposedModule {
     }
     private static String lastUserText(Object context) {
         try {
-            java.lang.reflect.Field field = context.getClass().getField("n");
-            Object messages = field.get(context);
-            if (!(messages instanceof java.util.List<?> list)) return null;
-            for (int i = list.size() - 1; i >= 0; i--) {
-                Object message = list.get(i);
-                if (message == null) continue;
-                Object role = message.getClass().getMethod("getRole").invoke(message);
-                if (role == null
-                        || !role.toString().toUpperCase(java.util.Locale.ROOT).contains("USER")) {
+            // 不依赖字段名：找一个「元素是 Message 的 List」字段即可
+            for (java.lang.reflect.Field field : context.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value;
+                try {
+                    value = field.get(context);
+                } catch (Throwable ignored) {
                     continue;
                 }
-                Object content = message.getClass().getMethod("getContent").invoke(message);
-                return content instanceof String s ? s : null;
+                if (!(value instanceof java.util.List<?> list) || list.isEmpty()) continue;
+                Object probe = list.get(list.size() - 1);
+                if (probe == null || !probe.getClass().getName().contains("Message")) continue;
+                for (int i = list.size() - 1; i >= 0; i--) {
+                    Object message = list.get(i);
+                    if (message == null) continue;
+                    Object role = message.getClass().getMethod("getRole").invoke(message);
+                    if (role == null
+                            || !role.toString().toUpperCase(java.util.Locale.ROOT).contains("USER")) {
+                        continue;
+                    }
+                    Object content = message.getClass().getMethod("getContent").invoke(message);
+                    if (content instanceof String s && !s.isBlank()) return s;
+                }
             }
         } catch (Throwable ignored) {
-            // 消息结构变了就安静跳过，筛选照常
+            // 结构变了就安静跳过，筛选照常
         }
         return null;
     }
