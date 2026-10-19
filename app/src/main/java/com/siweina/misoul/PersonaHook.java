@@ -130,6 +130,8 @@ public final class PersonaHook extends XposedModule {
     private volatile boolean contractLogged;
     private volatile boolean toolTrimLogged;
     private volatile boolean toolFilterLogged;
+    private final java.util.concurrent.atomic.AtomicInteger toolFilterCalls =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger toolCount =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicLong toolCharsBefore =
@@ -472,6 +474,14 @@ public final class PersonaHook extends XposedModule {
                 }
                 filtered.add(item);
                 afterChars += chars;
+            }
+            int call = toolFilterCalls.incrementAndGet();
+            if (call <= 6) {
+                log(
+                        Log.INFO,
+                        TAG,
+                        "筛选调用 " + call + "：" + list.size() + " -> " + filtered.size()
+                                + " 个，描述 " + beforeChars + " -> " + afterChars + " 字");
             }
             if (dropped > 0 && !toolFilterLogged) {
                 toolFilterLogged = true;
