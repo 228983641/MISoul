@@ -125,6 +125,7 @@ private class UiState(
     val toolTrim: Boolean,
     val setToolTrim: (Boolean) -> Unit,
     val open: (Field) -> Unit,
+    val openRules: () -> Unit,
     val reset: () -> Unit,
     val iconHidden: Boolean,
     val setIconHidden: (Boolean) -> Unit,
@@ -251,6 +252,9 @@ private fun App(refreshTick: Int) {
             prefs.edit().putBoolean(PersonaHook.KEY_TOOL_TRIM, it).apply()
         },
         open = { field -> context.startActivity(DetailActivity.intent(context, field)) },
+        openRules = {
+            context.startActivity(android.content.Intent(context, RulesActivity::class.java))
+        },
         reset = { confirmReset = true },
         iconHidden = iconHidden,
         setIconHidden = { hidden ->
@@ -590,7 +594,7 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 } else {
                     "已自定义 ${state.rulesText.length} 字"
                 },
-                onClick = { state.open(Field.Rules) },
+                onClick = state.openRules,
             )
             ArrowPreference(
                 title = "文案替换",
