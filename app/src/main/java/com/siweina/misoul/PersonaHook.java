@@ -133,6 +133,8 @@ public final class PersonaHook extends XposedModule {
             new java.util.concurrent.atomic.AtomicLong();
     private volatile int systemPromptChars = -1;
     private volatile boolean statsScheduled;
+    private final java.util.concurrent.atomic.AtomicInteger paramHookCalls =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger paramTrimCount =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicLong paramCharsBefore =
@@ -501,6 +503,7 @@ public final class PersonaHook extends XposedModule {
         if (parameters != null) {
             hook(parameters).intercept(chain -> {
                 Object result = chain.proceed();
+                int calls = paramHookCalls.incrementAndGet();
                 Bundle config = config();
                 if (config == null || !config.getBoolean(KEY_ENABLED, false) || result == null) {
                     return result;
@@ -510,6 +513,17 @@ public final class PersonaHook extends XposedModule {
                 if (!deep && !trim) return result;
 
                 String text = result.toString();
+                // 无条件探针：前 5 次调用如实记录 JSON 的形态，用来定位"为什么没改动"
+                if (calls <= 5) {
+                    int descFields = countOf(text, "\"description\"");
+                    int maxValue = maxDescriptionLength(text);
+                    log(
+                            Log.INFO,
+                            TAG,
+                            "参数探针 " + calls + "：len=" + text.length() + " desc字段="
+                                    + descFields + " 最长描述=" + maxValue + " 头部="
+                                    + sample(text));
+                }
                 if (text.length() < 400) return result;   // 参数表本来就短，别动
                 String shrunk = trimParameterDescriptions(text, deep ? 120 : 240);
                 if (shrunk.equals(text)) return result;
@@ -567,6 +581,34 @@ public final class PersonaHook extends XposedModule {
         int count = 0;
         for (int i = text.length() - 1; i >= 0 && text.charAt(i) == '\\'; i--) count++;
         return count % 2 == 1;
+    }
+
+    private static int countOf(String text, String needle) {
+        int count = 0;
+        int at = 0;
+        while ((at = text.indexOf(needle, at)) >= 0) {
+            count++;
+            at += needle.length();
+        }
+        return count;
+    }
+
+    /** 所有 "description" 值里最长的那个长度，用来判断到底有没有可截的对象。 */
+    private static int maxDescriptionLength(String json) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "\"description\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+        java.util.regex.Matcher matcher = pattern.matcher(json);
+        int max = 0;
+        while (matcher.find()) {
+            max = Math.max(max, matcher.group(1).length());
+        }
+        return max;
+    }
+
+    /** 探针用：取前 200 字并压平换行，方便在 logcat 里看结构。 */
+    private static String sample(String text) {
+        String head = text.length() > 200 ? text.substring(0, 200) : text;
+        return head.replace("\n", " ").replace("\r", " ");
     }
 
     /** 用 kotlinx.serialization 的 Json 把字符串重新解析成 JsonObject。 */
