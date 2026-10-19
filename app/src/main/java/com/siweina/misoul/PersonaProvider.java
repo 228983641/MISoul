@@ -20,6 +20,9 @@ public final class PersonaProvider extends ContentProvider {
     public static final String METHOD_USAGE = "usage";
     /** prefs 里存「工具名|次数|最后调用毫秒」，一行一条。 */
     public static final String KEY_USAGE = "usage";
+    /** hook 最近一次来取配置的时间（毫秒），用来判断模块是否真的活着。 */
+    public static final String KEY_HOOK_SEEN = "hook_last_seen";
+    private static volatile long lastSeenWrite;
 
     @Override
     public boolean onCreate() {
@@ -33,6 +36,7 @@ public final class PersonaProvider extends ContentProvider {
             return null;
         }
         if (!METHOD.equals(method)) return null;
+        touchHookSeen();
         SharedPreferences prefs = getContext().getSharedPreferences(PersonaHook.PREFS, 0);
         Bundle bundle = new Bundle();
         bundle.putBoolean(PersonaHook.KEY_ENABLED, prefs.getBoolean(PersonaHook.KEY_ENABLED, false));
@@ -68,6 +72,18 @@ public final class PersonaProvider extends ContentProvider {
         return bundle;
     }
 
+    /** 记下 hook 最近一次来取配置的时间（节流到 20 秒一次，避免频繁写盘）。 */
+    private void touchHookSeen() {
+        long now = System.currentTimeMillis();
+        if (now - lastSeenWrite < 20_000L) return;
+        lastSeenWrite = now;
+        try {
+            getContext().getSharedPreferences(PersonaHook.PREFS, 0)
+                    .edit().putLong(KEY_HOOK_SEEN, now).apply();
+        } catch (Throwable ignored) {
+            // 写失败不影响取配置
+        }
+    }
     /** 把一次工具调用累加进 prefs；单条上限 300 个工具，避免无限增长。 */
     private void recordUsage(String tool) {
         if (tool == null || tool.isEmpty()) return;

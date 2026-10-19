@@ -58,6 +58,9 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.IconButtonDefaults
 import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -69,6 +72,7 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -475,8 +479,27 @@ private fun PageTitle(title: String, subtitle: String? = null) {
 @Composable
 private fun OverviewPage(state: UiState, bottomPadding: Dp) {
     PageColumn(bottomPadding) {
-        PageTitle("概览")
-        StatusCard(state.enabled, state.moduleVersion, state.xiaoaiVersion)
+        val context = LocalContext.current
+        val lastSeen = remember {
+            context.getSharedPreferences(PersonaHook.PREFS, Context.MODE_PRIVATE)
+                .getLong(PersonaProvider.KEY_HOOK_SEEN, 0L)
+        }
+        // 5 分钟内收到过 hook 的配置请求，才算真的注入成功
+        val hooked = System.currentTimeMillis() - lastSeen < 5 * 60 * 1000L
+        Row(
+            Modifier.fillMaxWidth().padding(end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f)) { PageTitle("概览") }
+            IconButton(onClick = { restartXiaoAi(context) }) {
+                Icon(
+                    MiuixIcons.Refresh,
+                    "重启小爱",
+                    tint = MiuixTheme.colorScheme.onBackground,
+                )
+            }
+        }
+        StatusCard(state.enabled, hooked, state.moduleVersion, state.xiaoaiVersion)
         Section("设备") {
             state.info.forEach { row -> StackedRow(row.label, row.value) }
         }
@@ -484,6 +507,10 @@ private fun OverviewPage(state: UiState, bottomPadding: Dp) {
             StackedRow("方式", "LSPosed · libxposed API 102")
             StackedRow("作用域", "com.miui.voiceassist")
             StackedRow("人格", if (state.enabled) "替换中" else "官方人格")
+            StackedRow(
+                "最近通信",
+                if (hooked) "刚刚" else "尚未收到（模块未启用或小爱未启动）",
+            )
         }
         Spacer(Modifier.height(6.dp))
         Hint("改完直接生效；小爱里新建一次对话即可看到新人设。")
@@ -491,9 +518,18 @@ private fun OverviewPage(state: UiState, bottomPadding: Dp) {
 }
 
 @Composable
-private fun StatusCard(enabled: Boolean, moduleVersion: String, xiaoai: String) {
-    val accent = if (enabled) Color(0xFF17A34A) else MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val container = if (enabled) Color(0xFFE3F7E9) else MiuixTheme.colorScheme.surfaceContainer
+private fun StatusCard(enabled: Boolean, hooked: Boolean, moduleVersion: String, xiaoai: String) {
+    val active = enabled && hooked
+    val accent = when {
+        active -> Color(0xFF17A34A)
+        enabled -> Color(0xFFB45309)
+        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+    }
+    val container = when {
+        active -> Color(0xFFE3F7E9)
+        enabled -> Color(0xFFFDF3E3)
+        else -> MiuixTheme.colorScheme.surfaceContainer
+    }
     Card(
         modifier = Modifier.padding(vertical = 10.dp).fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = container, contentColor = accent),
@@ -504,7 +540,11 @@ private fun StatusCard(enabled: Boolean, moduleVersion: String, xiaoai: String) 
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (enabled) "已激活" else "未启用",
+                    when {
+                        active -> "已激活"
+                        enabled -> "等待注入"
+                        else -> "未启用"
+                    },
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -815,3 +855,28 @@ private fun xiaoaiVersion(context: Context): String =
         val info = context.packageManager.getPackageInfo("com.miui.voiceassist", 0)
         "${info.versionName} (${info.longVersionCode})"
     }.getOrDefault("未安装")
+
+/** 申请 root 后强杀并拉起小爱：am force-stop 对主进程无效，必须 kill -9。 */
+private fun restartXiaoAi(context: android.content.Context) {
+    Thread {
+        val ok = runCatching {
+            val process = Runtime.getRuntime().exec(
+                arrayOf(
+                    "su", "-c",
+                    "kill -9 \$(pidof com.miui.voiceassist) 2>/dev/null; sleep 1; " +
+                        "am start -n com.miui.voiceassist/com.xiaomi.voiceassistant" +
+                        ".mainui.navigator.MainNavigatorActivity",
+                ),
+            )
+            process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
+            process.exitValue() == 0
+        }.getOrDefault(false)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Toast.makeText(
+                context,
+                if (ok) "小爱已重启" else "重启失败：请确认已授予 root 权限",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }.start()
+}

@@ -1031,6 +1031,13 @@ public final class PersonaHook extends XposedModule {
                 return result;
             });
             log(Log.INFO, TAG, "hooking ToolDefinition.getParameters (仅观测，不修改)");
+
+        // 装完 hook 立刻取一次配置：一是确认配置通道可用，二是给 App 一个「已注入」的心跳
+        try {
+            config();
+        } catch (Throwable ignored) {
+            // 心跳失败不影响 hook
+        }
         }
     }
 
