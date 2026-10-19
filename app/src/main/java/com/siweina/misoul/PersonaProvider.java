@@ -16,6 +16,10 @@ public final class PersonaProvider extends ContentProvider {
 
     public static final String AUTHORITY = "com.siweina.misoul.config";
     public static final String METHOD = "persona";
+    /** 小爱进程回传工具调用：method=usage, arg=工具名。 */
+    public static final String METHOD_USAGE = "usage";
+    /** prefs 里存「工具名|次数|最后调用毫秒」，一行一条。 */
+    public static final String KEY_USAGE = "usage";
 
     @Override
     public boolean onCreate() {
@@ -24,6 +28,10 @@ public final class PersonaProvider extends ContentProvider {
 
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
+        if (METHOD_USAGE.equals(method)) {
+            recordUsage(arg != null ? arg : (extras == null ? null : extras.getString("tool")));
+            return null;
+        }
         if (!METHOD.equals(method)) return null;
         SharedPreferences prefs = getContext().getSharedPreferences(PersonaHook.PREFS, 0);
         Bundle bundle = new Bundle();
@@ -58,6 +66,46 @@ public final class PersonaProvider extends ContentProvider {
         bundle.putString(PersonaHook.KEY_TOOL_OVERRIDES,
                 prefs.getString(PersonaHook.KEY_TOOL_OVERRIDES, ""));
         return bundle;
+    }
+
+    /** 把一次工具调用累加进 prefs；单条上限 300 个工具，避免无限增长。 */
+    private void recordUsage(String tool) {
+        if (tool == null || tool.isEmpty()) return;
+        SharedPreferences prefs = getContext().getSharedPreferences(PersonaHook.PREFS, 0);
+        String raw = prefs.getString(KEY_USAGE, "");
+        long now = System.currentTimeMillis();
+
+        java.util.LinkedHashMap<String, long[]> map = new java.util.LinkedHashMap<>();
+        if (raw != null) {
+            for (String line : raw.split("\n")) {
+                String entry = line.trim();
+                if (entry.isEmpty()) continue;
+                String[] parts = entry.split("\\|");
+                if (parts.length < 2) continue;
+                try {
+                    long count = Long.parseLong(parts[1]);
+                    long last = parts.length > 2 ? Long.parseLong(parts[2]) : 0L;
+                    map.put(parts[0], new long[]{count, last});
+                } catch (NumberFormatException ignored) {
+                    // 坏行直接丢掉
+                }
+            }
+        }
+        long[] current = map.get(tool);
+        if (current == null) current = new long[]{0L, 0L};
+        current[0] += 1;
+        current[1] = now;
+        map.put(tool, current);
+
+        StringBuilder out = new StringBuilder();
+        int kept = 0;
+        for (java.util.Map.Entry<String, long[]> entry : map.entrySet()) {
+            if (kept++ >= 300) break;
+            out.append(entry.getKey()).append('|')
+                    .append(entry.getValue()[0]).append('|')
+                    .append(entry.getValue()[1]).append('\n');
+        }
+        prefs.edit().putString(KEY_USAGE, out.toString()).apply();
     }
 
     /** 从 assets/tool_groups.txt 取出所有类别前缀，供 hook 判断「未知类别默认保留」。 */

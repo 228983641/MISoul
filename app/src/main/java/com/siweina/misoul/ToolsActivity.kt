@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
@@ -134,6 +135,19 @@ private fun ToolsScreen(onDone: () -> Unit) {
                     .verticalScroll(rememberScrollState())
                     .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 32.dp),
             ) {
+                SmallTitle("使用情况")
+                Card(Modifier.fillMaxWidth()) {
+                    ArrowPreference(
+                        title = "查看使用记录",
+                        summary = "各个工具被调用了多少次、最近一次是什么时候",
+                        onClick = {
+                            context.startActivity(
+                                android.content.Intent(context, UsageActivity::class.java),
+                            )
+                        },
+                    )
+                }
+
                 SmallTitle("预设")
                 Card(Modifier.fillMaxWidth()) {
                     Row(

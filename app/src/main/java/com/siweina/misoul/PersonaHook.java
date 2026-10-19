@@ -130,6 +130,7 @@ public final class PersonaHook extends XposedModule {
     private volatile boolean contractLogged;
     private volatile boolean toolTrimLogged;
     private volatile boolean toolFilterLogged;
+    private volatile boolean usageReportWarned;
     private final java.util.concurrent.atomic.AtomicInteger toolFilterCalls =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger toolCount =
@@ -288,6 +289,11 @@ public final class PersonaHook extends XposedModule {
             hookStyleContract(loader);
         } catch (Throwable failure) {
             log(Log.ERROR, TAG, "style contract skipped: " + failure);
+        }
+        try {
+            hookToolUsage(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "tool usage skipped: " + failure);
         }
         try {
             hookToolFilter(loader);
@@ -508,6 +514,42 @@ public final class PersonaHook extends XposedModule {
             return base + "\n\n" + STYLE_MARKER + "\n" + contract.trim();
         });
         log(Log.INFO, TAG, "hooking ck.d0.getResolvedSystemPrompt (语气契约)");
+    }
+
+    /** 记录工具调用：ToolExecutor.execute 是所有工具调用的汇聚点。 */
+    private void hookToolUsage(ClassLoader loader) throws Exception {
+        Class<?> executor = Class.forName("com.aios.osbot.tools.ToolExecutor", false, loader);
+        for (Method method : executor.getDeclaredMethods()) {
+            if (!"execute".equals(method.getName())) continue;
+            if (method.getParameterCount() < 1 || method.getParameterTypes()[0] != String.class) continue;
+            hook(method).intercept(chain -> {
+                Object arg = chain.getArg(0);
+                if (arg instanceof String name && !name.isEmpty()) reportUsage(name);
+                return chain.proceed();
+            });
+            log(Log.INFO, TAG, "hooking ToolExecutor.execute (使用统计)");
+            return;
+        }
+        log(Log.WARN, TAG, "没找到 ToolExecutor.execute，使用统计不可用");
+    }
+
+    private void reportUsage(String toolName) {
+        try {
+            Context ctx = context();
+            if (ctx == null) return;
+            Bundle extras = new Bundle();
+            extras.putString("tool", toolName);
+            ctx.getContentResolver().call(
+                    Uri.parse("content://" + PersonaProvider.AUTHORITY),
+                    PersonaProvider.METHOD_USAGE,
+                    toolName,
+                    extras);
+        } catch (Throwable failure) {
+            if (!usageReportWarned) {
+                usageReportWarned = true;
+                log(Log.WARN, TAG, "使用统计回传失败：" + failure);
+            }
+        }
     }
 
     /**
