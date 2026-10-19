@@ -133,6 +133,7 @@ public final class PersonaHook extends XposedModule {
     private volatile boolean toolTrimLogged;
     private volatile boolean toolFilterLogged;
     private volatile boolean usageReportWarned;
+    private volatile boolean contextDumped;
     private final java.util.concurrent.atomic.AtomicInteger toolFilterCalls =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger toolCount =
@@ -575,8 +576,9 @@ public final class PersonaHook extends XposedModule {
                                 + (result instanceof java.util.List<?> l ? l.size() : -1)
                                 + "，消息=" + abbreviate(lastUserText(chain.getThisObject())));
             }
-            // 第一次调用时把执行上下文的字段结构打出来，定位消息到底存在哪个字段
-            if (alive == 1) {
+            // 只要还没 dump 过就打一次，定位消息到底存在哪个字段
+            if (!contextDumped) {
+                contextDumped = true;
                 dumpContext(chain.getThisObject());
             }
             Bundle config = config();
@@ -721,7 +723,21 @@ public final class PersonaHook extends XposedModule {
                     if (!list.isEmpty()) {
                         Object first = list.get(0);
                         out.append(" first=")
-                                .append(first == null ? "null" : first.getClass().getName());
+                                .append(first == null ? "null" : first.getClass().getSimpleName());
+                        if (first != null && first.getClass().getName().contains("Message")) {
+                            try {
+                                Object role = first.getClass().getMethod("getRole").invoke(first);
+                                Object content = first.getClass().getMethod("getContent").invoke(first);
+                                out.append(" role=").append(role)
+                                        .append(" content=")
+                                        .append(content == null
+                                                ? "null"
+                                                : content.getClass().getSimpleName() + ":"
+                                                        + abbreviate(String.valueOf(content)));
+                            } catch (Throwable ignored) {
+                                // 结构不一致就跳过
+                            }
+                        }
                     }
                 } else if (value instanceof String s) {
                     out.append(" = ").append(abbreviate(s));

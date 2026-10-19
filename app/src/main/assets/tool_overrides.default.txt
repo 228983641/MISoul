@@ -3,6 +3,8 @@
 
 选命令优先级：专用命令 > 专用工具 > A2A/MCP/Skill > controlApp（最后手段）。
 已有专用能力能完成时，不要用 controlApp 绕。
+航班 / 机票 / 酒店 / 火车票 / 导航 / 外卖 这些都有专门工具（Variflight__*、ctrip_travel__*、
+amap_car__*、alipay_service_agent），要直接调它们，不要用 cli 硬拼。
 
 闹钟 / 日程 / 定时 / 纪念日 的区分（最容易混）：
 - 「叫我起床」「早上 X 点闹我」→ deskclock add（闹钟，不支持指定日期）
