@@ -134,6 +134,8 @@ public final class PersonaHook extends XposedModule {
     private volatile boolean toolFilterLogged;
     private volatile boolean usageReportWarned;
     private volatile boolean contextDumped;
+    private volatile String cachedUserText;
+    private volatile long cachedUserTextAt;
     private final java.util.concurrent.atomic.AtomicInteger toolFilterCalls =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger toolCount =
@@ -292,6 +294,11 @@ public final class PersonaHook extends XposedModule {
             hookStyleContract(loader);
         } catch (Throwable failure) {
             log(Log.ERROR, TAG, "style contract skipped: " + failure);
+        }
+        try {
+            hookMessageCache(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "message cache skipped: " + failure);
         }
         try {
             hookToolUsage(loader);
@@ -519,6 +526,58 @@ public final class PersonaHook extends XposedModule {
         log(Log.INFO, TAG, "hooking ck.d0.getResolvedSystemPrompt (语气契约)");
     }
 
+    /**
+     * 缓存本轮用户原话：beforeModelCall 能拿到 List<Message>，
+     * 这时消息已经齐了；getTools 阶段还没有，所以先存下来给它用。
+     */
+    private void hookMessageCache(ClassLoader loader) throws Exception {
+        Class<?> plugin = Class.forName("uj.a", false, loader);
+        for (Method method : plugin.getDeclaredMethods()) {
+            if (!"beforeModelCall".equals(method.getName())) continue;
+            if (method.getParameterCount() < 3) continue;
+            if (!java.util.List.class.isAssignableFrom(method.getParameterTypes()[2])) continue;
+            hook(method).intercept(chain -> {
+                try {
+                    String text = lastUserTextIn(chain.getArg(2));
+                    if (text != null && !text.isBlank()) {
+                        cachedUserText = text;
+                        cachedUserTextAt = SystemClock.elapsedRealtime();
+                    }
+                } catch (Throwable ignored) {
+                    // 缓存失败不影响正常流程
+                }
+                return chain.proceed();
+            });
+            log(Log.INFO, TAG, "hooking uj.a.beforeModelCall (消息缓存)");
+            return;
+        }
+        log(Log.WARN, TAG, "没找到 beforeModelCall，消息缓存不可用");
+    }
+
+    /** 从一个 List<Message> 里取最后一条用户消息。 */
+    private static String lastUserTextIn(Object listObject) {
+        if (!(listObject instanceof java.util.List<?> list)) return null;
+        for (int i = list.size() - 1; i >= 0; i--) {
+            Object message = list.get(i);
+            if (message == null) continue;
+            try {
+                Object role = message.getClass().getMethod("getRole").invoke(message);
+                if (role == null
+                        || !role.toString().toUpperCase(java.util.Locale.ROOT).contains("USER")) {
+                    continue;
+                }
+                Object content = message.getClass().getMethod("getContent").invoke(message);
+                if (content instanceof String s && !s.isBlank()) {
+                    String body = s.trim();
+                    // 跳过系统注入的提示消息（<potentially_related_tools> 之类）
+                    if (!body.startsWith("<")) return body;
+                }
+            } catch (Throwable ignored) {
+                // 换下一条
+            }
+        }
+        return null;
+    }
     /** 记录工具调用：ToolExecutor.execute 是所有工具调用的汇聚点。 */
     private void hookToolUsage(ClassLoader loader) throws Exception {
         Class<?> executor = Class.forName("com.aios.osbot.tools.ToolExecutor", false, loader);
@@ -575,7 +634,8 @@ public final class PersonaHook extends XposedModule {
                         "getTools 调用 " + alive + "，列表大小="
                                 + (result instanceof java.util.List<?> l ? l.size() : -1)
                                 + "，消息=" + abbreviate(routerText(chain.getThisObject()))
-                                + "，历史=" + abbreviate(lastUserText(chain.getThisObject())));
+                                + "，历史=" + abbreviate(lastUserText(chain.getThisObject()))
+                                + "，缓存=" + abbreviate(cachedUserText));
             }
             // 只要还没 dump 过就打一次，定位消息到底存在哪个字段
             if (!contextDumped) {
@@ -680,6 +740,10 @@ public final class PersonaHook extends XposedModule {
         // 优先用路由决策里的原话：getTools 时消息列表还没填，但它已经有了
         String text = routerText(context);
         if (text == null || text.isEmpty()) text = lastUserText(context);
+        if ((text == null || text.isEmpty()) && cachedUserText != null
+                && SystemClock.elapsedRealtime() - cachedUserTextAt < 120_000L) {
+            text = cachedUserText;   // 由 beforeModelCall 缓存的本轮原话
+        }
         if (text == null || text.isEmpty()) return;
         for (String rule : KEYWORD_RULES) {
             int split = rule.lastIndexOf('|');
