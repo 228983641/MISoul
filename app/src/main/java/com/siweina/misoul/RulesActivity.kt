@@ -77,6 +77,31 @@ private fun RulesScreen(onDone: () -> Unit) {
     }
     val scrollBehavior = MiuixScrollBehavior()
 
+    // SAF 导出：文件落在用户自己选的目录里，是真实路径，MT 管理器能定位、能直接编辑
+    val createDoc = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = custom.ifBlank {
+                        readAsset(context, "tool_selection_rules.official.md")
+                    }
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                    true
+                }.getOrDefault(false)
+            }
+            Toast.makeText(
+                context,
+                if (ok) "已导出，可以在文件管理器里定位编辑" else "导出失败",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
     val importRules = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -122,8 +147,13 @@ private fun RulesScreen(onDone: () -> Unit) {
                 Card(Modifier.fillMaxWidth()) {
                     ArrowPreference(
                         title = "用其他应用查看",
-                        summary = "导出成文件，交给浏览器 / 编辑器 / 文本查看器",
+                        summary = "临时文件，只适合预览；要定位/编辑请用下面的导出",
                         onClick = { exportAndOpen(context, custom) },
+                    )
+                    ArrowPreference(
+                        title = "导出到文件",
+                        summary = "系统选保存位置，拿到真实路径，MT 管理器可直接定位编辑",
+                        onClick = { createDoc.launch(RULES_FILE) },
                     )
                 }
                 SmallTitle("修改")
