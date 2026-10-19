@@ -131,6 +131,15 @@ public final class PersonaHook extends XposedModule {
             new java.util.concurrent.atomic.AtomicLong();
     private volatile int systemPromptChars = -1;
     private volatile boolean statsScheduled;
+    private final java.util.concurrent.atomic.AtomicInteger paramTrimCount =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong paramCharsBefore =
+            new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong paramCharsAfter =
+            new java.util.concurrent.atomic.AtomicLong();
+    private static volatile Object jsonInstance;
+    private static volatile java.lang.reflect.Method jsonParse;
+    private volatile boolean jsonRebuildWarned;
     private volatile java.util.Map<String, String> cachedOverrides;
     private volatile String cachedOverridesRaw;
     private volatile java.util.Map<String, String> cachedTextMap;
@@ -456,18 +465,123 @@ public final class PersonaHook extends XposedModule {
             toolCount.incrementAndGet();
             toolCharsBefore.addAndGet(original.length());
             toolCharsAfter.addAndGet(finalText.length());
+            int paramsChars = 0;
             if (parameters != null) {
                 try {
                     Object params = parameters.invoke(chain.getThisObject());
-                    if (params != null) toolParamChars.addAndGet(params.toString().length());
+                    if (params != null) {
+                        paramsChars = params.toString().length();
+                        toolParamChars.addAndGet(paramsChars);
+                    }
                 } catch (Throwable ignored) {
                     // 忽略
                 }
+            }
+            // 逐条打印（只打前 12 条，避免刷屏）：工具名 描述 before -> after 参数 schema
+            int index = toolCount.get();
+            if (index <= 12) {
+                log(
+                        Log.INFO,
+                        TAG,
+                        "工具 " + index + " " + name + "：描述 " + original.length() + " -> "
+                                + finalText.length() + " 字，参数 schema " + paramsChars + " 字");
             }
             scheduleStats();
             return finalText;
         });
         log(Log.INFO, TAG, "hooking ToolDefinition.getDescription (工具描述瘦身)");
+
+        // 参数表里的 description 才是真正的体积大头（257 个工具的 schema 加起来几十万字）。
+        // 只截断超长描述：name/type/required/enum/default 一律不动，避免工具调用直接失效。
+        if (parameters != null) {
+            hook(parameters).intercept(chain -> {
+                Object result = chain.proceed();
+                Bundle config = config();
+                if (config == null || !config.getBoolean(KEY_ENABLED, false) || result == null) {
+                    return result;
+                }
+                boolean deep = config.getBoolean(KEY_TOOL_DEEP, false);
+                boolean trim = config.getBoolean(KEY_TOOL_TRIM, true);
+                if (!deep && !trim) return result;
+
+                String text = result.toString();
+                if (text.length() < 1200) return result;   // 参数表本来就短，别动
+                String shrunk = trimParameterDescriptions(text, deep ? 160 : 320);
+                if (shrunk.equals(text)) return result;
+
+                Object rebuilt = buildJsonElement(shrunk);
+                if (rebuilt == null) return result;        // 解析失败就原样返回，绝不冒险
+
+                int n = paramTrimCount.incrementAndGet();
+                paramCharsBefore.addAndGet(text.length());
+                paramCharsAfter.addAndGet(shrunk.length());
+                if (n <= 8) {
+                    log(Log.INFO, TAG, "参数表 " + n + "：" + text.length() + " -> "
+                            + shrunk.length() + " 字");
+                }
+                return rebuilt;
+            });
+            log(Log.INFO, TAG, "hooking ToolDefinition.getParameters (参数描述截断)");
+        }
+    }
+
+    /**
+     * 把 JSON 里超长的 "description" 值截断。
+     * 只动引号内的描述文本，键名、类型、enum、required 都不会被碰到。
+     */
+    private static String trimParameterDescriptions(String json, int limit) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "\"description\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+        java.util.regex.Matcher matcher = pattern.matcher(json);
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        boolean changed = false;
+        while (matcher.find()) {
+            String value = matcher.group(1);
+            if (value.length() <= limit) continue;
+            String cut = value.substring(0, limit);
+            // 别切在转义序列中间：末尾若是奇数个反斜杠，或者落在 unicode 转义里，就往回退
+            while (!cut.isEmpty() && endsWithOddBackslashes(cut)) {
+                cut = cut.substring(0, cut.length() - 1);
+            }
+            int unicode = cut.lastIndexOf("\\u");
+            if (unicode >= 0 && cut.length() - unicode < 6) {
+                cut = cut.substring(0, unicode);
+            }
+            out.append(json, last, matcher.start(1));
+            out.append(cut).append("…");
+            last = matcher.end(1);
+            changed = true;
+        }
+        if (!changed) return json;
+        out.append(json.substring(last));
+        return out.toString();
+    }
+
+    private static boolean endsWithOddBackslashes(String text) {
+        int count = 0;
+        for (int i = text.length() - 1; i >= 0 && text.charAt(i) == '\\'; i--) count++;
+        return count % 2 == 1;
+    }
+
+    /** 用 kotlinx.serialization 的 Json 把字符串重新解析成 JsonObject。 */
+    private Object buildJsonElement(String text) {
+        try {
+            if (jsonInstance == null) {
+                Class<?> jsonClass = Class.forName("kotlinx.serialization.json.Json");
+                Object companion = jsonClass.getField("Companion").get(null);
+                Object defaultJson = companion.getClass().getMethod("getDefault").invoke(companion);
+                jsonParse = defaultJson.getClass().getMethod("parseToJsonElement", String.class);
+                jsonInstance = defaultJson;
+            }
+            return jsonParse.invoke(jsonInstance, text);
+        } catch (Throwable failure) {
+            if (!jsonRebuildWarned) {
+                jsonRebuildWarned = true;
+                log(Log.WARN, TAG, "参数表重建失败，保留原样：" + failure);
+            }
+            return null;
+        }
     }
 
     /** 等工具列表出齐后打一条汇总，避免每次都刷日志。 */
