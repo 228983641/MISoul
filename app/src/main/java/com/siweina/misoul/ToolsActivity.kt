@@ -192,7 +192,18 @@ private fun ToolsScreen(onDone: () -> Unit) {
                     ) {
                         PresetButton("自动（用过 + 必备 + 关键词）", Modifier.weight(1f)) {
                             val used = usedPrefixes(context)
-                            val auto = SAFETY + used
+                            // 还没有任何使用记录时，「自动」退化成「工作」档，
+                            // 否则只剩安全集 4 类，太激进
+                            val auto = if (used.isEmpty()) {
+                                Toast.makeText(
+                                    context,
+                                    "还没有使用记录，先按「工作」档保留",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                WORK
+                            } else {
+                                SAFETY + used
+                            }
                             filterEnabled = true
                             keep = auto
                             persist(true, auto)
