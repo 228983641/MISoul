@@ -859,20 +859,23 @@ private fun xiaoaiVersion(context: Context): String =
 /** 申请 root 后强杀小爱进程（系统会自己拉起）：am force-stop 对主进程无效，必须 kill -9。 */
 private fun restartXiaoAi(context: android.content.Context) {
     Thread {
-        val ok = runCatching {
+        // 用 echo 标记判断「shell 是否真的跑起来了」：
+        // kill 在进程不存在时会返回非 0，不能拿它当成功标准。
+        val result = runCatching {
             val process = Runtime.getRuntime().exec(
                 arrayOf(
                     "su", "-c",
-                    "kill -9 \$(pidof com.miui.voiceassist) 2>/dev/null",
+                    "kill -9 \$(pidof com.miui.voiceassist) >/dev/null 2>&1; echo __misoul_ok__",
                 ),
             )
-            process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
-            process.exitValue() == 0
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            val finished = process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
+            finished && output.contains("__misoul_ok__")
         }.getOrDefault(false)
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             Toast.makeText(
                 context,
-                if (ok) "已结束小爱进程，系统会自动拉起" else "失败：请确认已授予 root 权限",
+                if (result) "已结束小爱进程，系统会自动拉起" else "失败：请确认已授予 root 权限",
                 Toast.LENGTH_SHORT,
             ).show()
         }
