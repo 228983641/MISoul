@@ -141,6 +141,9 @@ public final class PersonaHook extends XposedModule {
             new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong paramCharsAfter =
             new java.util.concurrent.atomic.AtomicLong();
+    private volatile ClassLoader appLoader;
+    private final java.util.Map<String, Integer> promptParts =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private static volatile Object jsonInstance;
     private static volatile java.lang.reflect.Method jsonParse;
     private volatile boolean jsonRebuildWarned;
@@ -176,6 +179,7 @@ public final class PersonaHook extends XposedModule {
             if (installed) return;
         }
 
+        appLoader = loader;
         hookPromptFiles(loader);
         try {
             hookProfile(loader);
@@ -615,11 +619,15 @@ public final class PersonaHook extends XposedModule {
     private Object buildJsonElement(String text) {
         try {
             if (jsonInstance == null) {
-                Class<?> jsonClass = Class.forName("kotlinx.serialization.json.Json");
+                // 必须用被 hook 进程的 ClassLoader：模块自己的加载器看不到小爱的依赖，
+                // 之前漏了 loader 参数，报 ClassNotFoundException 后一直走兜底、参数表没改过。
+                Class<?> jsonClass = Class.forName(
+                        "kotlinx.serialization.json.Json", false, appLoader);
                 Object companion = jsonClass.getField("Companion").get(null);
                 Object defaultJson = companion.getClass().getMethod("getDefault").invoke(companion);
                 jsonParse = defaultJson.getClass().getMethod("parseToJsonElement", String.class);
                 jsonInstance = defaultJson;
+                log(Log.INFO, TAG, "JSON 重建已就绪：" + jsonClass.getName());
             }
             return jsonParse.invoke(jsonInstance, text);
         } catch (Throwable failure) {
@@ -644,13 +652,23 @@ public final class PersonaHook extends XposedModule {
             } catch (InterruptedException ignored) {
                 return;
             }
+            int partTotal = 0;
+            StringBuilder parts = new StringBuilder();
+            for (java.util.Map.Entry<String, Integer> entry : promptParts.entrySet()) {
+                partTotal += entry.getValue();
+                parts.append('\n').append("  ").append(entry.getKey()).append('=')
+                        .append(entry.getValue());
+            }
+            int systemChars = systemPromptChars > 0 ? systemPromptChars : partTotal;
             log(
                     Log.INFO,
                     TAG,
-                    "提示词统计：系统提示 " + systemPromptChars + " 字；工具 " + toolCount.get()
-                            + " 个，描述 " + toolCharsBefore.get() + " -> " + toolCharsAfter.get()
-                            + " 字，参数 schema " + toolParamChars.get() + " 字；合计约 "
-                            + (systemPromptChars + toolCharsAfter.get() + toolParamChars.get()) + " 字");
+                    "提示词统计：系统提示 " + systemChars + " 字（片段合计 " + partTotal + "）；工具 "
+                            + toolCount.get() + " 个，描述 " + toolCharsBefore.get() + " -> "
+                            + toolCharsAfter.get() + " 字，参数 schema " + toolParamChars.get()
+                            + " 字；合计约 "
+                            + (systemChars + toolCharsAfter.get() + toolParamChars.get()) + " 字"
+                            + parts);
         }, "misoul-stats");
         thread.setDaemon(true);
         thread.start();
@@ -876,6 +894,33 @@ public final class PersonaHook extends XposedModule {
         log(Log.INFO, TAG, "hooking " + companion.getName());
         hook(readAsset).intercept(this::onReadAsset);
         hook(readFile).intercept(this::onReadFile);
+
+        // 统计系统提示各片段：rs.d.resolve(...) 每次返回一个文件的正文，
+        // 实例字段 a 就是文件名（soul.md / prompt.md / tool_selection_rules.md …）。
+        try {
+            Class<?> resolver = Class.forName("rs.d", false, loader);
+            Class<?> fsType = readAsset.getParameterTypes()[0];
+            Method resolve = resolver.getDeclaredMethod(
+                    "resolve", fsType, String.class, File.class, boolean.class);
+            java.lang.reflect.Field nameField = resolver.getField("a");
+            hook(resolve).intercept(chain -> {
+                Object result = chain.proceed();
+                if (result instanceof String text) {
+                    try {
+                        Object name = nameField.get(chain.getThisObject());
+                        if (name instanceof String part) {
+                            promptParts.merge(part, text.length(), Math::max);
+                        }
+                    } catch (Throwable ignored) {
+                        // 统计失败不影响返回
+                    }
+                }
+                return result;
+            });
+            log(Log.INFO, TAG, "hooking rs.d.resolve (系统提示片段统计)");
+        } catch (Throwable failure) {
+            log(Log.WARN, TAG, "系统提示统计没挂上：" + failure);
+        }
     }
 
     private Object onReadAsset(XposedInterface.Chain chain) throws Throwable {
