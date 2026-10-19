@@ -133,7 +133,7 @@ public final class PersonaHook extends XposedModule {
             new java.util.concurrent.atomic.AtomicLong();
     private volatile int systemPromptChars = -1;
     private volatile boolean statsScheduled;
-    private final java.util.concurrent.atomic.AtomicInteger paramHookCalls =
+    private final java.util.concurrent.atomic.AtomicInteger paramProbeCalls =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger paramTrimCount =
             new java.util.concurrent.atomic.AtomicInteger();
@@ -502,49 +502,27 @@ public final class PersonaHook extends XposedModule {
         });
         log(Log.INFO, TAG, "hooking ToolDefinition.getDescription (工具描述瘦身)");
 
-        // 参数表里的 description 才是真正的体积大头（257 个工具的 schema 加起来几十万字）。
-        // 只截断超长描述：name/type/required/enum/default 一律不动，避免工具调用直接失效。
+        // 参数表：经实测放弃压缩。
+        // 探针显示 11.2 万字里 "description" 字段极少（有的工具一个都没有），
+        // 主体是字段名 / enum 列表 / type / required / 嵌套 properties —— 删长句省不了几个字，
+        // 而重建 JsonObject 又依赖小爱进程里的 kotlinx（其 ClassLoader 不可达），
+        // 投入与收益都不划算。这里只保留一次形态观测，便于以后换思路。
         if (parameters != null) {
             hook(parameters).intercept(chain -> {
                 Object result = chain.proceed();
-                int calls = paramHookCalls.incrementAndGet();
-                Bundle config = config();
-                if (config == null || !config.getBoolean(KEY_ENABLED, false) || result == null) {
-                    return result;
-                }
-                boolean deep = config.getBoolean(KEY_TOOL_DEEP, false);
-                boolean trim = config.getBoolean(KEY_TOOL_TRIM, true);
-                if (!deep && !trim) return result;
-
-                String text = result.toString();
-                // 无条件探针：前 5 次调用如实记录 JSON 的形态，用来定位"为什么没改动"
-                if (calls <= 5) {
-                    int descFields = countOf(text, "\"description\"");
-                    int maxValue = maxDescriptionLength(text);
+                int calls = paramProbeCalls.incrementAndGet();
+                if (calls <= 3 && result != null) {
+                    String text = result.toString();
                     log(
                             Log.INFO,
                             TAG,
                             "参数探针 " + calls + "：len=" + text.length() + " desc字段="
-                                    + descFields + " 最长描述=" + maxValue + " 头部="
-                                    + sample(text));
+                                    + countOf(text, "\"description\"") + " 最长描述="
+                                    + maxDescriptionLength(text));
                 }
-                if (text.length() < 400) return result;   // 参数表本来就短，别动
-                String shrunk = trimParameterDescriptions(text, deep ? 120 : 240);
-                if (shrunk.equals(text)) return result;
-
-                Object rebuilt = buildJsonElement(shrunk);
-                if (rebuilt == null) return result;        // 解析失败就原样返回，绝不冒险
-
-                int n = paramTrimCount.incrementAndGet();
-                paramCharsBefore.addAndGet(text.length());
-                paramCharsAfter.addAndGet(shrunk.length());
-                if (n <= 8) {
-                    log(Log.INFO, TAG, "参数表 " + n + "：" + text.length() + " -> "
-                            + shrunk.length() + " 字");
-                }
-                return rebuilt;
+                return result;
             });
-            log(Log.INFO, TAG, "hooking ToolDefinition.getParameters (参数描述截断)");
+            log(Log.INFO, TAG, "hooking ToolDefinition.getParameters (仅观测，不修改)");
         }
     }
 
