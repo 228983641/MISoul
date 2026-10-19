@@ -574,7 +574,8 @@ public final class PersonaHook extends XposedModule {
                         TAG,
                         "getTools 调用 " + alive + "，列表大小="
                                 + (result instanceof java.util.List<?> l ? l.size() : -1)
-                                + "，消息=" + abbreviate(lastUserText(chain.getThisObject())));
+                                + "，消息=" + abbreviate(routerText(chain.getThisObject()))
+                                + "，历史=" + abbreviate(lastUserText(chain.getThisObject())));
             }
             // 只要还没 dump 过就打一次，定位消息到底存在哪个字段
             if (!contextDumped) {
@@ -676,7 +677,9 @@ public final class PersonaHook extends XposedModule {
 
     private void expandFromContext(Object context, java.util.Set<String> keep,
                                    java.util.Set<String> added) {
-        String text = lastUserText(context);
+        // 优先用路由决策里的原话：getTools 时消息列表还没填，但它已经有了
+        String text = routerText(context);
+        if (text == null || text.isEmpty()) text = lastUserText(context);
         if (text == null || text.isEmpty()) return;
         for (String rule : KEYWORD_RULES) {
             int split = rule.lastIndexOf('|');
@@ -746,6 +749,19 @@ public final class PersonaHook extends XposedModule {
             log(Log.INFO, TAG, out.toString());
         } catch (Throwable failure) {
             log(Log.WARN, TAG, "dumpContext 失败：" + failure);
+        }
+    }
+    /** 从路由决策对象里取用户原话（getTools 阶段消息列表还是空的）。 */
+    private static String routerText(Object context) {
+        try {
+            java.lang.reflect.Field field = context.getClass().getDeclaredField("l");
+            field.setAccessible(true);
+            Object decision = field.get(context);
+            if (decision == null) return null;
+            Object text = decision.getClass().getMethod("getText").invoke(decision);
+            return text instanceof String s && !s.isBlank() ? s : null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
     private static String lastUserText(Object context) {
