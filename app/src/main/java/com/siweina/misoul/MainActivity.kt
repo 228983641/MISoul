@@ -126,6 +126,7 @@ private class UiState(
     val setToolTrim: (Boolean) -> Unit,
     val open: (Field) -> Unit,
     val openRules: () -> Unit,
+    val openTools: () -> Unit,
     val reset: () -> Unit,
     val iconHidden: Boolean,
     val setIconHidden: (Boolean) -> Unit,
@@ -252,6 +253,9 @@ private fun App(refreshTick: Int) {
             prefs.edit().putBoolean(PersonaHook.KEY_TOOL_TRIM, it).apply()
         },
         open = { field -> context.startActivity(DetailActivity.intent(context, field)) },
+        openTools = {
+            context.startActivity(android.content.Intent(context, ToolsActivity::class.java))
+        },
         openRules = {
             context.startActivity(android.content.Intent(context, RulesActivity::class.java))
         },
@@ -611,6 +615,13 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 title = "显示名",
                 summary = state.profileName.ifBlank { "未设置" },
                 onClick = { state.open(Field.ProfileName) },
+            )
+        }
+        Section("上下文") {
+            ArrowPreference(
+                title = "工具筛选",
+                summary = "按类别决定给模型看哪些工具，默认全部",
+                onClick = state.openTools,
             )
         }
         Section("开关") {

@@ -51,6 +51,12 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_TOOL_OVERRIDES = "tool_overrides";
     /** 随包发布的内置精简描述（`### 工具名` 分块），由 ContentProvider 读 assets 传过来。 */
     public static final String KEY_TOOL_DEFAULTS = "tool_defaults";
+    /** 工具筛选开关：只保留勾选的类别；关掉即全部保留。 */
+    public static final String KEY_TOOL_FILTER = "tool_filter";
+    /** 勾选保留的类别前缀，逗号分隔；空 = 不过滤。 */
+    public static final String KEY_TOOL_KEEP = "tool_keep";
+    /** 全部已知类别前缀（逗号分隔），用来判断「未知类别默认保留」。 */
+    public static final String KEY_TOOL_GROUPS = "tool_groups";
     /** 自定义的 tool_selection_rules.md；空 = 用官方那份。 */
     public static final String KEY_RULES_TEXT = "rules_text";
     /** 工具描述深度压缩（实验）：按块打分 + 每工具硬上限。 */
@@ -123,6 +129,7 @@ public final class PersonaHook extends XposedModule {
     private volatile String lastLoggedText;
     private volatile boolean contractLogged;
     private volatile boolean toolTrimLogged;
+    private volatile boolean toolFilterLogged;
     private final java.util.concurrent.atomic.AtomicInteger toolCount =
             new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicLong toolCharsBefore =
@@ -206,6 +213,11 @@ public final class PersonaHook extends XposedModule {
             hookStyleContract(loader);
         } catch (Throwable failure) {
             log(Log.ERROR, TAG, "style contract skipped: " + failure);
+        }
+        try {
+            hookToolFilter(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "tool filter skipped: " + failure);
         }
         try {
             hookToolDescription(loader);
@@ -422,6 +434,98 @@ public final class PersonaHook extends XposedModule {
         });
         log(Log.INFO, TAG, "hooking ck.d0.getResolvedSystemPrompt (语气契约)");
     }
+
+    /**
+     * 工具筛选：在 sj.e.getTools() 返回前把未勾选的类别去掉。
+     *
+     * 工具列表在每次模型调用前都会从执行上下文取一次，这里过滤最省事；
+     * 未知类别（小爱升级后新增的前缀）默认保留，避免被静默砍掉。
+     */
+    private void hookToolFilter(ClassLoader loader) throws Exception {
+        Class<?> context = Class.forName("sj.e", false, loader);
+        Method getTools = context.getDeclaredMethod("getTools");
+        hook(getTools).intercept(chain -> {
+            Object result = chain.proceed();
+            Bundle config = config();
+            if (config == null || !config.getBoolean(KEY_ENABLED, false)) return result;
+            if (!config.getBoolean(KEY_TOOL_FILTER, false)) return result;
+            if (!(result instanceof java.util.List<?> list) || list.isEmpty()) return result;
+
+            java.util.Set<String> keep = splitToSet(config.getString(KEY_TOOL_KEEP, ""));
+            if (keep.isEmpty()) return result;
+            java.util.Set<String> known = splitToSet(config.getString(KEY_TOOL_GROUPS, ""));
+
+            java.util.List<Object> filtered = new java.util.ArrayList<>(list.size());
+            int beforeChars = 0;
+            int afterChars = 0;
+            int dropped = 0;
+            for (Object item : list) {
+                String name = toolName(item);
+                int chars = toolChars(item);
+                beforeChars += chars;
+                String prefix = prefixOf(name);
+                boolean isKnown = known.isEmpty() || known.contains(prefix);
+                boolean selected = keep.contains(prefix);
+                if (isKnown && !selected) {
+                    dropped++;
+                    continue;
+                }
+                filtered.add(item);
+                afterChars += chars;
+            }
+            if (dropped > 0 && !toolFilterLogged) {
+                toolFilterLogged = true;
+                log(
+                        Log.INFO,
+                        TAG,
+                        "工具筛选：" + list.size() + " -> " + filtered.size() + " 个，描述约 "
+                                + beforeChars + " -> " + afterChars + " 字");
+            }
+            return filtered;
+        });
+        log(Log.INFO, TAG, "hooking sj.e.getTools (工具筛选)");
+    }
+
+    private static java.util.Set<String> splitToSet(String raw) {
+        java.util.Set<String> set = new java.util.LinkedHashSet<>();
+        if (raw == null) return set;
+        for (String part : raw.split(",")) {
+            String item = part.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!item.isEmpty()) set.add(item);
+        }
+        return set;
+    }
+
+    private static String prefixOf(String name) {
+        if (name == null) return "";
+        int x = name.indexOf("__");
+        if (x > 0) return name.substring(0, x).toLowerCase(java.util.Locale.ROOT);
+        int u = name.indexOf('_');
+        if (u > 0) return name.substring(0, u).toLowerCase(java.util.Locale.ROOT);
+        return name.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String toolName(Object toolDefinition) {
+        try {
+            Object name = toolDefinition.getClass().getMethod("getName").invoke(toolDefinition);
+            return name instanceof String s ? s : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static int toolChars(Object toolDefinition) {
+        try {
+            Object desc = toolDefinition.getClass().getMethod("getDescription").invoke(toolDefinition);
+            Object params = toolDefinition.getClass().getMethod("getParameters").invoke(toolDefinition);
+            int chars = desc instanceof String s ? s.length() : 0;
+            if (params != null) chars += params.toString().length();
+            return chars;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
 
     /**
      * 工具描述瘦身：只改 description，参数 schema 一个字节都不动。

@@ -44,6 +44,11 @@ public final class PersonaProvider extends ContentProvider {
                 prefs.getString(PersonaHook.KEY_STYLE_CONTRACT, PersonaHook.DEFAULT_STYLE_CONTRACT));
         bundle.putBoolean(PersonaHook.KEY_TOOL_TRIM,
                 prefs.getBoolean(PersonaHook.KEY_TOOL_TRIM, true));
+        bundle.putBoolean(PersonaHook.KEY_TOOL_FILTER,
+                prefs.getBoolean(PersonaHook.KEY_TOOL_FILTER, false));
+        bundle.putString(PersonaHook.KEY_TOOL_KEEP,
+                prefs.getString(PersonaHook.KEY_TOOL_KEEP, ""));
+        bundle.putString(PersonaHook.KEY_TOOL_GROUPS, groupPrefixes());
         bundle.putString(PersonaHook.KEY_TOOL_DEFAULTS,
                 readAsset("tool_overrides.default.txt"));
         bundle.putString(PersonaHook.KEY_RULES_TEXT,
@@ -53,6 +58,19 @@ public final class PersonaProvider extends ContentProvider {
         bundle.putString(PersonaHook.KEY_TOOL_OVERRIDES,
                 prefs.getString(PersonaHook.KEY_TOOL_OVERRIDES, ""));
         return bundle;
+    }
+
+    /** 从 assets/tool_groups.txt 取出所有类别前缀，供 hook 判断「未知类别默认保留」。 */
+    private String groupPrefixes() {
+        StringBuilder builder = new StringBuilder();
+        for (String line : readAsset("tool_groups.txt").split("\n")) {
+            if (line.startsWith("#") || line.isEmpty()) continue;
+            int bar = line.indexOf('|');
+            if (bar <= 0) continue;
+            if (builder.length() > 0) builder.append(',');
+            builder.append(line, 0, bar);
+        }
+        return builder.toString();
     }
 
     private String readAsset(String name) {

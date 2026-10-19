@@ -1,0 +1,84 @@
+# 前缀|用途|工具数|描述字数|示例工具（只用于展示）
+cli|命令行入口（闹钟/日程/定时/应用操作的统一入口）|1|34881|cli
+voiceassist|设备与应用控制（打开应用、改设置、执行操作）|21|7872|voiceassist__controlApp, voiceassist__exit_xiaoai, voiceassist__favorite
+notes|便签与笔记|26|6601|notes__card_create, notes__card_template, notes__folder_create
+variflight|航班动态与机场信息|4|5813|Variflight__getAirportFlightBoard, Variflight__getAirportLowPriceRoutes, Variflight__getAirportOperationOverview
+ctrip_travel|携程（机票 / 酒店 / 火车票）|6|5546|ctrip_travel__compare_price, ctrip_travel__query_flight, ctrip_travel__query_hotel
+alipay|支付宝服务|1|4620|alipay_service_agent
+amap_car|高德车机与导航|8|4348|amap_car__amap_car_enterprise_aggregation_submit_order, amap_car__amap_car_enterprise_agreement_sign, amap_car__amap_car_enterprise_agreement_sign_status
+control|车辆与设备控制|2|3957|control_car_by_phone, control_media
+gallery|相册管理|11|3911|gallery__gallery_add_to_collection, gallery__gallery_assess, gallery__gallery_assess_trash
+cloud|云端沙箱|1|3389|cloud_sandbox
+service|通用服务调用|8|3346|service__milink_cast_settings, service__milink_connectivity_settings, service__milink_desktop_device_switch
+amap-navigation|高德导航|1|2144|amap-navigation__route_plan_v2
+im|即时通讯|1|1908|im_chat
+mcp|MCP 工具接入|1|1832|mcp
+phone|电话|5|1827|phone__phone_call_recording, phone__phone_get_caller_info, phone__phone_network_settings
+deskclock|闹钟|9|1811|deskclock__deskclock_add_alarm, deskclock__deskclock_cancel_timer, deskclock__deskclock_delete_alarm
+read|文件读取|4|1723|read_calendar, read_dailybrief, read_file
+get|信息查询|6|1659|get_current_time, get_health_data, get_location
+send|发送内容|3|1577|send_notification, send_sms, send_task_to_device
+telecom|通信（短信 / 流量 / 运营商）|5|1564|telecom__phone_call_action, telecom__phone_hold_call, telecom__phone_make_call
+memory|记忆与偏好|3|1543|memory_forget, memory_read, memory_write
+manage|管理操作|2|1379|manage_contacts, manage_notification
+timer|定时任务|1|1173|timer
+app|应用管理|8|1163|app_func, app_install, app_launch
+remote|远程文件|1|1123|remote_file
+soundrecorder||4|1116|soundrecorder__get_transcription, soundrecorder__manage_recording, soundrecorder__play_audio_file
+xiaomi_appstore||8|1104|xiaomi_appstore__app_download, xiaomi_appstore__app_search, xiaomi_appstore__app_update
+calendar|日程与提醒|9|1014|calendar__create_anniversary, calendar__create_birthday, calendar__create_countdown
+bugreport||6|801|bugreport__add_reply, bugreport__get_domains, bugreport__get_feedback_list
+wallet||3|784|wallet__get_bookkeeping_categories, wallet__query_available_insurance_products, wallet__record_bill
+create||2|730|create_calendar_event, create_exercise_schedule
+browser||7|701|browser_click, browser_close, browser_extract
+podcast||1|654|podcast
+background||1|583|background_task
+cainiao_logistics||2|565|cainiao_logistics__check_phone_and_query, cainiao_logistics__query_logistics_detail
+miaiplus||2|554|miaiplus_background_phone_use, miaiplus_phone_use
+url||1|543|url_fetch
+share||1|531|share
+connectivity||1|530|connectivity__manage_file_transfer
+device||1|501|device_list
+personaldata||1|487|personaldata_search
+bluetooth|蓝牙|6|439|bluetooth_connect, bluetooth_disconnect, bluetooth_paired_devices
+skill||1|434|skill
+agent||1|391|agent
+weather2||3|390|weather2__func_version_message, weather2__weather_get_city_alert, weather2__weather_get_city_weather
+web|网页操作|1|387|web_search
+reload||2|366|reload_mcp_config, reload_skills
+write||1|350|write_file
+search|搜索|3|327|search_contacts, search_files, search_history
+publish||1|318|publish_file
+csv||1|314|csv_query
+add||1|290|add_mcp_server
+home||1|285|home__home_settings
+update||2|280|update_calendar_event, update_custom_prompt
+root|Root 操作（UI 自动化 / 截屏）|11|280|root__app_start, root__exec, root__key
+wind_ab1||1|249|wind_ab1__stock_get_realtime_analysis
+ai||1|222|ai_call
+scanner||2|175|scanner__open_scan, scanner__scan_qr_image
+jdjr_mcp_base_service||3|165|JDJR_MCP_BASE_SERVICE__query-gold, JDJR_MCP_BASE_SERVICE__query-news, JDJR_MCP_BASE_SERVICE__query-stock
+wechat||1|162|wechat_voice_control
+file|文件操作|2|152|file_grep, file_info
+aicr||1|139|aicr__get_support_event_detail
+query||1|128|query_share_targets
+cleanmaster||1|127|cleanmaster__manage_cleaner
+clipboard||1|127|clipboard
+list||2|102|list_files, list_wifi_networks
+mx-mcp||1|97|mx-mcp__aitrading_select_stock
+move||1|89|move_file
+edit||1|81|edit_file
+connect||1|79|connect_wifi
+load||1|74|load_message
+append||1|71|append_file
+var||1|69|var
+miot||1|61|miot_ask_assistant
+check||1|49|check_permissions
+delete||1|42|delete_file
+switch||1|36|switch_wifi
+call||1|32|call_tool
+power||1|31|power_control
+wifi||1|31|wifi_info
+screen||1|23|screen_lock
+disconnect||1|13|disconnect_wifi
+copy||1|8|copy_file
