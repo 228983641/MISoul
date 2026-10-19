@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.siweina.misoul.ui.component.liquid.IosLiquidGlassNavigationBar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -480,12 +482,20 @@ private fun PageTitle(title: String, subtitle: String? = null) {
 private fun OverviewPage(state: UiState, bottomPadding: Dp) {
     PageColumn(bottomPadding) {
         val context = LocalContext.current
-        val lastSeen = remember {
+        val prefs = remember {
             context.getSharedPreferences(PersonaHook.PREFS, Context.MODE_PRIVATE)
-                .getLong(PersonaProvider.KEY_HOOK_SEEN, 0L)
         }
-        // 5 分钟内收到过 hook 的配置请求，才算真的注入成功
-        val hooked = System.currentTimeMillis() - lastSeen < 5 * 60 * 1000L
+        var lastSeen by remember { mutableStateOf(prefs.getLong(PersonaProvider.KEY_HOOK_SEEN, 0L)) }
+        // 每 2 秒重读一次心跳，小爱重启后状态会自动变绿，不用退出重进
+        LaunchedEffect(Unit) {
+            while (true) {
+                lastSeen = prefs.getLong(PersonaProvider.KEY_HOOK_SEEN, 0L)
+                delay(2000)
+            }
+        }
+        val seenAgo = if (lastSeen > 0) System.currentTimeMillis() - lastSeen else Long.MAX_VALUE
+        // 10 分钟内收到过 hook 的配置请求，才算真的注入成功
+        val hooked = seenAgo < 10 * 60 * 1000L
         Row(
             Modifier.fillMaxWidth().padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -509,7 +519,12 @@ private fun OverviewPage(state: UiState, bottomPadding: Dp) {
             StackedRow("人格", if (state.enabled) "替换中" else "官方人格")
             StackedRow(
                 "最近通信",
-                if (hooked) "刚刚" else "尚未收到（模块未启用或小爱未启动）",
+                when {
+                    lastSeen <= 0L -> "尚未收到"
+                    seenAgo < 60_000L -> "刚刚"
+                    seenAgo < 3_600_000L -> "${seenAgo / 60_000L} 分钟前"
+                    else -> "${seenAgo / 3_600_000L} 小时前"
+                },
             )
         }
         Spacer(Modifier.height(6.dp))
