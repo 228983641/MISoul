@@ -55,6 +55,8 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_TOOL_FILTER = "tool_filter";
     /** 勾选保留的类别前缀，逗号分隔；空 = 不过滤。 */
     public static final String KEY_TOOL_KEEP = "tool_keep";
+    /** 按对话关键词临时放开相关类别（默认开）。 */
+    public static final String KEY_AUTO_EXPAND = "tool_auto_expand";
     /** 全部已知类别前缀（逗号分隔），用来判断「未知类别默认保留」。 */
     public static final String KEY_TOOL_GROUPS = "tool_groups";
     /** 自定义的 tool_selection_rules.md；空 = 用官方那份。 */
@@ -572,6 +574,16 @@ public final class PersonaHook extends XposedModule {
             if (keep.isEmpty()) return result;
             java.util.Set<String> known = splitToSet(config.getString(KEY_TOOL_GROUPS, ""));
 
+            // 关键词临时扩容：这轮消息里提到航班/酒店/导航……就临时把对应类别放回来，
+            // 不需要用户回 App 手动切换。
+            if (config.getBoolean(KEY_AUTO_EXPAND, true)) {
+                java.util.Set<String> added = new java.util.LinkedHashSet<>();
+                expandFromContext(chain.getThisObject(), keep, added);
+                if (!added.isEmpty()) {
+                    log(Log.INFO, TAG, "关键词扩容：" + added + "（本轮临时放开）");
+                }
+            }
+
             java.util.List<Object> filtered = new java.util.ArrayList<>(list.size());
             int beforeChars = 0;
             int afterChars = 0;
@@ -628,6 +640,71 @@ public final class PersonaHook extends XposedModule {
             return null;
         }
     }
+    /** 关键词 → 类别：命中就临时放开，不改用户保存的筛选。 */
+    private static final String[] KEYWORD_RULES = {
+        "航班|机票|机场|飞机|登机|起飞|降落|variflight,ctrip_travel",
+        "酒店|民宿|住宿|订房|携程|ctrip_travel",
+        "导航|地图|路线|开车|驾车|路况|堵车|amap_car,amap-navigation",
+        "支付宝|付款|点餐|外卖|买单|alipay",
+        "车窗|空调|车控|车辆|control",
+        "相册|照片|图片|截图|gallery",
+        "笔记|便签|记一下|备忘录|notes",
+        "电话|打电话|短信|通讯录|phone,telecom,im",
+        "音乐|播放|放首歌|music",
+        "文件|读取|写入|保存到|read,send,file",
+        "闹钟|闹铃|叫我起床|deskclock",
+        "日程|会议|提醒|calendar",
+        "倒计时|几分钟后|定时|timer",
+        "打开应用|关闭应用|设置|voiceassist",
+    };
+
+    private void expandFromContext(Object context, java.util.Set<String> keep,
+                                   java.util.Set<String> added) {
+        String text = lastUserText(context);
+        if (text == null || text.isEmpty()) return;
+        for (String rule : KEYWORD_RULES) {
+            int split = rule.lastIndexOf('|');
+            if (split <= 0) continue;
+            String keywords = rule.substring(0, split);
+            String groups = rule.substring(split + 1);
+            boolean hit = false;
+            for (String keyword : keywords.split("\\|")) {
+                if (!keyword.isEmpty() && text.contains(keyword)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) continue;
+            for (String group : groups.split(",")) {
+                String prefix = group.trim().toLowerCase(java.util.Locale.ROOT);
+                if (!prefix.isEmpty() && keep.add(prefix)) added.add(prefix);
+            }
+        }
+    }
+
+    /** 从执行上下文拿最近一条用户消息的正文，拿不到就返回 null。 */
+    private static String lastUserText(Object context) {
+        try {
+            java.lang.reflect.Field field = context.getClass().getField("n");
+            Object messages = field.get(context);
+            if (!(messages instanceof java.util.List<?> list)) return null;
+            for (int i = list.size() - 1; i >= 0; i--) {
+                Object message = list.get(i);
+                if (message == null) continue;
+                Object role = message.getClass().getMethod("getRole").invoke(message);
+                if (role == null
+                        || !role.toString().toUpperCase(java.util.Locale.ROOT).contains("USER")) {
+                    continue;
+                }
+                Object content = message.getClass().getMethod("getContent").invoke(message);
+                return content instanceof String s ? s : null;
+            }
+        } catch (Throwable ignored) {
+            // 消息结构变了就安静跳过，筛选照常
+        }
+        return null;
+    }
+
     private static java.util.Set<String> splitToSet(String raw) {
         java.util.Set<String> set = new java.util.LinkedHashSet<>();
         if (raw == null) return set;

@@ -75,6 +75,9 @@ private val WORK = setOf(
     "voiceassist", "deskclock", "calendar", "timer",
     "notes", "read", "send", "search", "file", "memory", "get", "set", "app",
 )
+// 自动档的安全集：这些永远保留，不管有没有用过。
+private val SAFETY = setOf("voiceassist", "deskclock", "calendar", "timer")
+
 private val HOME = setOf(
     "voiceassist", "deskclock", "calendar", "timer",
     "notes", "music", "gallery", "phone", "telecom",
@@ -88,6 +91,9 @@ private fun ToolsScreen(onDone: () -> Unit) {
 
     var filterEnabled by remember {
         mutableStateOf(prefs.getBoolean(PersonaHook.KEY_TOOL_FILTER, false))
+    }
+    var autoExpand by remember {
+        mutableStateOf(prefs.getBoolean(PersonaHook.KEY_AUTO_EXPAND, true))
     }
     var keep by remember {
         mutableStateOf(
@@ -180,6 +186,29 @@ private fun ToolsScreen(onDone: () -> Unit) {
                             persist(true, HOME)
                         }
                     }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PresetButton("自动（用过 + 必备 + 关键词）", Modifier.weight(1f)) {
+                            val used = usedPrefixes(context)
+                            val auto = SAFETY + used
+                            filterEnabled = true
+                            keep = auto
+                            persist(true, auto)
+                        }
+                    }
+                }
+                Card(Modifier.fillMaxWidth()) {
+                    SwitchPreference(
+                        title = "按对话关键词临时放开",
+                        summary = "消息里提到航班/酒店/导航等时，本轮临时放开对应类别",
+                        checked = autoExpand,
+                        onCheckedChange = { on ->
+                            autoExpand = on
+                            prefs.edit().putBoolean(PersonaHook.KEY_AUTO_EXPAND, on).apply()
+                        },
+                    )
                 }
                 Hint("「全部」= 不过滤；出门 / 工作 / 居家 = 只保留对应能力的类别。")
                 Hint("筛选按请求生效，改完直接发消息即可，不用重启小爱。")
@@ -254,4 +283,22 @@ private fun loadGroups(context: Context): List<ToolGroup> {
         }
         .sortedByDescending { it.chars }
         .toList()
+}
+
+/** 从使用记录里取出现过的类别前缀。 */
+private fun usedPrefixes(context: Context): Set<String> {
+    val prefs = context.getSharedPreferences(PersonaHook.PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(PersonaProvider.KEY_USAGE, "").orEmpty()
+    return raw.lineSequence().mapNotNull { line ->
+        val name = line.substringBefore('|')
+        if (name.isBlank()) null else prefixOf(name)
+    }.toSet()
+}
+
+private fun prefixOf(name: String): String {
+    val two = name.indexOf("__")
+    if (two > 0) return name.substring(0, two).lowercase()
+    val one = name.indexOf('_')
+    if (one > 0) return name.substring(0, one).lowercase()
+    return name.lowercase()
 }
