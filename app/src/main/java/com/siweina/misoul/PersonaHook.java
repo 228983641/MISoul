@@ -565,6 +565,16 @@ public final class PersonaHook extends XposedModule {
         Method getTools = context.getDeclaredMethod("getTools");
         hook(getTools).intercept(chain -> {
             Object result = chain.proceed();
+            int alive = toolFilterCalls.get() + 1;
+            // 无条件探针：只要 getTools 被调用就留痕，用来区分「hook 没装上」和「条件没命中」
+            if (alive <= 5) {
+                log(
+                        Log.INFO,
+                        TAG,
+                        "getTools 调用 " + alive + "，列表大小="
+                                + (result instanceof java.util.List<?> l ? l.size() : -1)
+                                + "，消息=" + abbreviate(lastUserText(chain.getThisObject())));
+            }
             Bundle config = config();
             if (config == null || !config.getBoolean(KEY_ENABLED, false)) return result;
             if (!config.getBoolean(KEY_TOOL_FILTER, false)) return result;
@@ -683,6 +693,11 @@ public final class PersonaHook extends XposedModule {
     }
 
     /** 从执行上下文拿最近一条用户消息的正文，拿不到就返回 null。 */
+    private static String abbreviate(String text) {
+        if (text == null) return "null";
+        String flat = text.replace("\n", " ").trim();
+        return flat.length() > 40 ? flat.substring(0, 40) + "…" : flat;
+    }
     private static String lastUserText(Object context) {
         try {
             java.lang.reflect.Field field = context.getClass().getField("n");
