@@ -856,16 +856,14 @@ private fun xiaoaiVersion(context: Context): String =
         "${info.versionName} (${info.longVersionCode})"
     }.getOrDefault("未安装")
 
-/** 申请 root 后强杀并拉起小爱：am force-stop 对主进程无效，必须 kill -9。 */
+/** 申请 root 后强杀小爱进程（系统会自己拉起）：am force-stop 对主进程无效，必须 kill -9。 */
 private fun restartXiaoAi(context: android.content.Context) {
     Thread {
         val ok = runCatching {
             val process = Runtime.getRuntime().exec(
                 arrayOf(
                     "su", "-c",
-                    "kill -9 \$(pidof com.miui.voiceassist) 2>/dev/null; sleep 1; " +
-                        "am start -n com.miui.voiceassist/com.xiaomi.voiceassistant" +
-                        ".mainui.navigator.MainNavigatorActivity",
+                    "kill -9 \$(pidof com.miui.voiceassist) 2>/dev/null",
                 ),
             )
             process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)
@@ -874,7 +872,7 @@ private fun restartXiaoAi(context: android.content.Context) {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             Toast.makeText(
                 context,
-                if (ok) "小爱已重启" else "重启失败：请确认已授予 root 权限",
+                if (ok) "已结束小爱进程，系统会自动拉起" else "失败：请确认已授予 root 权限",
                 Toast.LENGTH_SHORT,
             ).show()
         }
