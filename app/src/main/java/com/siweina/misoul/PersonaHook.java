@@ -49,6 +49,34 @@ public final class PersonaHook extends XposedModule {
     public static final String KEY_TOOL_TRIM = "tool_trim";
     /** 单个工具的描述覆盖，一行一条「工具名=新描述」。 */
     public static final String KEY_TOOL_OVERRIDES = "tool_overrides";
+    /** 自定义的 tool_selection_rules.md；空 = 用官方那份。 */
+    public static final String KEY_RULES_TEXT = "rules_text";
+    /** 工具描述深度压缩（实验）：按块打分 + 每工具硬上限。 */
+    public static final String KEY_TOOL_DEEP = "tool_deep";
+
+    /** 「选工具规则」的内置精简版，作为编辑器的初始内容；清空保存即回到官方那份。 */
+    public static final String COMPACT_RULES =
+            "# 选工具规则（精简版）\n\n"
+                    + "## 优先级\n"
+                    + "专用命令 > 专用工具 > A2A/MCP/Skill > controlApp（最后手段）。\n"
+                    + "已有专用能力能完成时，不要用 controlApp 绕。\n\n"
+                    + "## 闹钟 / 日程 / 定时 的区分（最容易混）\n"
+                    + "- 「叫我起床」「早上 X 点闹我」→ `deskclock add`（闹钟，不支持指定日期）\n"
+                    + "- 「明天 X 点开会提醒」「某天 X 点提醒我」→ `calendar create`（日程）\n"
+                    + "- 「明天有会但没说几点」→ 先问具体时间，<b>禁止默认 9 点</b>\n"
+                    + "- 「5 分钟后叫我」「到点跑个 AI 任务」→ `timer set`（定时/倒计时任务，不是闹钟）\n"
+                    + "- 「每年 X 月 X 号」「生日/纪念日/倒数日」→ `calendar new-reminder`\n"
+                    + "- 「上车后/关闹钟后执行」→ `timer set --event-type-id car_boarded|alarm_dismissed`，不要换算成时间\n\n"
+                    + "## 时间与参数格式\n"
+                    + "- 时间统一 ISO：`2026-10-19T07:00`；不要写「明天早上」这种相对说法进参数。\n"
+                    + "- 坐标经度在前、纬度在后；缺省内/城市时先问，不要瞎填。\n"
+                    + "- 参数只传用户原话里明确过的信息，缺失就问一句，不要替用户假设。\n\n"
+                    + "## 什么时候不要用工具\n"
+                    + "- 纯闲聊、情绪回应、解释概念：直接回答，别调工具。\n"
+                    + "- 用户只是问「能不能做」，先回答再问要不要做。\n"
+                    + "- 工具失败一次就如实说，不要换个工具硬凑。\n";
+    /** 深度压缩时每个工具保留的字符上限。 */
+    private static final int DEEP_BUDGET = 800;
 
     /** 契约里自带的标记，用来避免重复追加。 */
     private static final String STYLE_MARKER = "【语气契约】";
@@ -73,6 +101,7 @@ public final class PersonaHook extends XposedModule {
     private static final String AGENT_PREFIX = "agents/" + AGENT + "/";
     private static final String SOUL = "soul.md";
     private static final String PROMPT = "prompt.md";
+    private static final String RULES = "tool_selection_rules.md";
 
     /** 官方 prompt.md 里那句"表明自己是超级小爱"，做定点替换而不是整份覆盖。 */
     private static final String OFFICIAL_CLAIM = "并表明自己是超级小爱";
@@ -92,6 +121,16 @@ public final class PersonaHook extends XposedModule {
     private volatile String lastLoggedText;
     private volatile boolean contractLogged;
     private volatile boolean toolTrimLogged;
+    private final java.util.concurrent.atomic.AtomicInteger toolCount =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong toolCharsBefore =
+            new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong toolCharsAfter =
+            new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong toolParamChars =
+            new java.util.concurrent.atomic.AtomicLong();
+    private volatile int systemPromptChars = -1;
+    private volatile boolean statsScheduled;
     private volatile java.util.Map<String, String> cachedOverrides;
     private volatile String cachedOverridesRaw;
     private volatile java.util.Map<String, String> cachedTextMap;
@@ -351,10 +390,14 @@ public final class PersonaHook extends XposedModule {
             String contract = config.getString(KEY_STYLE_CONTRACT, DEFAULT_STYLE_CONTRACT);
             if (contract == null || contract.trim().isEmpty()) return result;
             if (!(result instanceof String base)) return result;
-            if (base.contains(STYLE_MARKER)) return result;
+            if (!base.contains(STYLE_MARKER)) {
+                systemPromptChars = base.length() + contract.length();
+                scheduleStats();
+            }
             if (!contractLogged) {
                 contractLogged = true;
-                log(Log.INFO, TAG, "语气契约已追加（" + contract.length() + " 字）");
+                log(Log.INFO, TAG, "语气契约已追加（" + contract.length() + " 字，系统提示 "
+                        + base.length() + " -> " + (base.length() + contract.length()) + " 字）");
             }
             return base + "\n\n" + STYLE_MARKER + "\n" + contract.trim();
         });
@@ -372,6 +415,13 @@ public final class PersonaHook extends XposedModule {
         Class<?> toolDefinition = Class.forName("com.aios.osbot.llm.model.ToolDefinition", false, loader);
         Method getDescription = toolDefinition.getDeclaredMethod("getDescription");
         Method getName = toolDefinition.getDeclaredMethod("getName");
+        Method getParameters = null;
+        try {
+            getParameters = toolDefinition.getDeclaredMethod("getParameters");
+        } catch (Throwable ignored) {
+            // 拿不到参数也不影响瘦身
+        }
+        final Method parameters = getParameters;
         hook(getDescription).intercept(chain -> {
             Object result = chain.proceed();
             if (!(result instanceof String original) || original.isEmpty()) return result;
@@ -386,18 +436,63 @@ public final class PersonaHook extends XposedModule {
             }
 
             String override = toolOverrides(config).get(name);
-            if (override != null) return override;
-            if (!config.getBoolean(KEY_TOOL_TRIM, true)) return result;
-
-            String compressed = compressToolDescription(original);
-            if (!compressed.equals(original) && !toolTrimLogged) {
-                toolTrimLogged = true;
-                log(Log.INFO, TAG, "工具描述瘦身：例 " + name + " " + original.length()
-                        + " -> " + compressed.length() + " 字");
+            String finalText = result instanceof String s ? s : original;
+            if (override != null) {
+                finalText = override;
+            } else if (config.getBoolean(KEY_TOOL_DEEP, false)) {
+                // 实验：按块打分 + 硬上限，砍示例和决策表，保格式与边界
+                finalText = compressDeep(original);
+            } else if (config.getBoolean(KEY_TOOL_TRIM, true)) {
+                String compressed = compressToolDescription(original);
+                if (!compressed.equals(original) && !toolTrimLogged) {
+                    toolTrimLogged = true;
+                    log(Log.INFO, TAG, "工具描述瘦身：例 " + name + " " + original.length()
+                            + " -> " + compressed.length() + " 字");
+                }
+                finalText = compressed;
             }
-            return compressed;
+
+            // 统计：工具数、描述字数（前/后）、参数 schema 字数
+            toolCount.incrementAndGet();
+            toolCharsBefore.addAndGet(original.length());
+            toolCharsAfter.addAndGet(finalText.length());
+            if (parameters != null) {
+                try {
+                    Object params = parameters.invoke(chain.getThisObject());
+                    if (params != null) toolParamChars.addAndGet(params.toString().length());
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+            }
+            scheduleStats();
+            return finalText;
         });
         log(Log.INFO, TAG, "hooking ToolDefinition.getDescription (工具描述瘦身)");
+    }
+
+    /** 等工具列表出齐后打一条汇总，避免每次都刷日志。 */
+    private void scheduleStats() {
+        if (statsScheduled) return;
+        synchronized (this) {
+            if (statsScheduled) return;
+            statsScheduled = true;
+        }
+        Thread thread = new Thread(() -> {
+            try {
+                Thread.sleep(4000);
+            } catch (InterruptedException ignored) {
+                return;
+            }
+            log(
+                    Log.INFO,
+                    TAG,
+                    "提示词统计：系统提示 " + systemPromptChars + " 字；工具 " + toolCount.get()
+                            + " 个，描述 " + toolCharsBefore.get() + " -> " + toolCharsAfter.get()
+                            + " 字，参数 schema " + toolParamChars.get() + " 字；合计约 "
+                            + (systemPromptChars + toolCharsAfter.get() + toolParamChars.get()) + " 字");
+        }, "misoul-stats");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     private static boolean isNoiseLine(String line) {
@@ -442,6 +537,78 @@ public final class PersonaHook extends XposedModule {
         }
         String out = builder.toString().trim();
         return out.isEmpty() ? text : out;
+    }
+
+    /**
+     * 深度压缩（实验）：按空行/标题切块，给每块打分，超预算时丢低分块。
+     *
+     * 加分：含参数格式或适用边界的块（这两类是"字面要求"，删了模型会瞎猜/用错工具）
+     * 减分：示例、⚠️ 提醒、超过 800 字的大段
+     * 首块（概述）无条件保留；高价值块可截断进预算，低价值块直接丢。
+     */
+    private static String compressDeep(String text) {
+        java.util.List<String> blocks = new java.util.ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String line : text.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                if (current.length() > 0) {
+                    blocks.add(current.toString());
+                    current.setLength(0);
+                }
+            } else if (trimmed.startsWith("#")) {
+                if (current.length() > 0) {
+                    blocks.add(current.toString());
+                    current.setLength(0);
+                }
+                current.append(line).append('\n');
+            } else {
+                current.append(line).append('\n');
+            }
+        }
+        if (current.length() > 0) blocks.add(current.toString());
+
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < blocks.size(); i++) {
+            String block = blocks.get(i);
+            boolean first = i == 0;
+            int score = scoreBlock(block);
+            if (!first && score < 0) continue;
+
+            int remaining = DEEP_BUDGET - out.length();
+            if (remaining <= 0) break;
+            if (block.length() <= remaining) {
+                out.append(block).append('\n');
+            } else if (first || score >= 100) {
+                // 首块和"字面要求"块：截断保留，不整块丢
+                out.append(block, 0, remaining).append('\n');
+            }
+        }
+        String result = out.toString().trim();
+        return result.isEmpty() ? text : result;
+    }
+
+    private static int scoreBlock(String block) {
+        int score = 0;
+        String lower = block.toLowerCase(java.util.Locale.ROOT);
+        if (containsAny(block, "格式", "必须", "必填", "可选", "枚举", "取值", "经度", "纬度")
+                || lower.contains("iso")) {
+            score += 100;
+        }
+        if (containsAny(block, "不适用", "仅用于", "不要用于", "只用于", "禁止", "别用", "不支持", "不负责")) {
+            score += 100;
+        }
+        if (containsAny(block, "示例", "例如", "比如", "example", "⚠")) score -= 100;
+        if (block.length() > 800) score -= 30;
+        if (block.length() <= 200) score += 20;
+        return score;
+    }
+
+    private static boolean containsAny(String text, String... needles) {
+        for (String needle : needles) {
+            if (text.contains(needle)) return true;
+        }
+        return false;
     }
 
     private java.util.Map<String, String> toolOverrides(Bundle config) {
@@ -541,6 +708,12 @@ public final class PersonaHook extends XposedModule {
                 log(Log.INFO, TAG, "soul.md from assets -> " + soul.length() + " chars override");
                 return withPrefix(prefix, soul);
             }
+        } else if (path.equals(AGENT_PREFIX + RULES)) {
+            String custom = customRules();
+            if (custom != null) {
+                log(Log.INFO, TAG, "tool_selection_rules.md -> " + custom.length() + " chars override");
+                return withPrefix(prefix, custom);
+            }
         } else if (path.equals(AGENT_PREFIX + PROMPT)) {
             Object result = chain.proceed();
             if (!(result instanceof String text)) return result;
@@ -556,13 +729,19 @@ public final class PersonaHook extends XposedModule {
         Object fileArg = chain.getArg(0);
         if (!(fileArg instanceof File file)) return chain.proceed();
         String name = file.getName();
-        if (!SOUL.equals(name) && !PROMPT.equals(name)) return chain.proceed();
+        if (!SOUL.equals(name) && !PROMPT.equals(name) && !RULES.equals(name)) return chain.proceed();
         if (!file.getPath().contains("/" + AGENT + "/")) return chain.proceed();
 
         Object prefixArg = chain.getArg(1);
         String prefix = prefixArg instanceof String s ? s : null;
 
-        if (SOUL.equals(name)) {
+        if (RULES.equals(name)) {
+            String custom = customRules();
+            if (custom != null) {
+                log(Log.INFO, TAG, "tool_selection_rules.md (file) -> " + custom.length() + " chars override");
+                return withPrefix(prefix, custom);
+            }
+        } else if (SOUL.equals(name)) {
             String soul = soul();
             if (soul != null) {
                 log(Log.INFO, TAG, "soul.md from file -> " + soul.length() + " chars override");
@@ -703,6 +882,15 @@ public final class PersonaHook extends XposedModule {
         Bundle config = config();
         return config != null && config.getBoolean(KEY_ENABLED, false)
                 && config.getBoolean(KEY_FIX_PROMPT, true);
+    }
+
+    /** 用户自定义的选工具规则；空则返回 null（继续用官方 24k 那份）。 */
+    private String customRules() {
+        Bundle config = config();
+        if (config == null || !config.getBoolean(KEY_ENABLED, false)) return null;
+        String raw = config.getString(KEY_RULES_TEXT, "");
+        if (raw == null || raw.trim().isEmpty()) return null;
+        return raw;
     }
 
     private String soul() {

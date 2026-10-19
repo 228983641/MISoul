@@ -78,6 +78,13 @@ enum class Field(
         PersonaHook.KEY_TEXT_MAP,
         true,
     ),
+    Rules(
+        "rules_text",
+        "选工具规则",
+        "留空 = 用官方那份（约 2.4 万字）",
+        PersonaHook.KEY_RULES_TEXT,
+        true,
+    ),
     StyleContract(
         "style_contract",
         "语气契约",
@@ -101,6 +108,7 @@ private fun DetailScreen(field: Field, onDone: () -> Unit) {
         Field.ProfileName -> PersonaHook.DEFAULT_PROFILE_NAME
         Field.TextMap -> ""
         Field.StyleContract -> PersonaHook.DEFAULT_STYLE_CONTRACT
+        Field.Rules -> PersonaHook.COMPACT_RULES
     }
     var value by remember {
         mutableStateOf(prefs.getString(field.prefKey, null) ?: fallback)

@@ -119,6 +119,9 @@ private class UiState(
     val welcome: String,
     val textMap: String,
     val styleContract: String,
+    val rulesText: String,
+    val deepTrim: Boolean,
+    val setDeepTrim: (Boolean) -> Unit,
     val toolTrim: Boolean,
     val setToolTrim: (Boolean) -> Unit,
     val open: (Field) -> Unit,
@@ -170,8 +173,12 @@ private fun App(refreshTick: Int) {
     var welcome by remember { mutableStateOf("") }
     var textMap by remember { mutableStateOf("") }
     var styleContract by remember { mutableStateOf("") }
+    var rulesText by remember { mutableStateOf("") }
     var toolTrim by rememberSaveable {
         mutableStateOf(prefs.getBoolean(PersonaHook.KEY_TOOL_TRIM, true))
+    }
+    var deepTrim by rememberSaveable {
+        mutableStateOf(prefs.getBoolean(PersonaHook.KEY_TOOL_DEEP, false))
     }
 
     val sync: () -> Unit = {
@@ -184,6 +191,7 @@ private fun App(refreshTick: Int) {
         welcome = prefs.getString(PersonaHook.KEY_PROFILE_WELCOME, null)
             ?: PersonaHook.DEFAULT_PROFILE_WELCOME
         textMap = prefs.getString(PersonaHook.KEY_TEXT_MAP, null).orEmpty()
+        rulesText = prefs.getString(PersonaHook.KEY_RULES_TEXT, null).orEmpty()
         styleContract = prefs.getString(PersonaHook.KEY_STYLE_CONTRACT, null)
             ?: PersonaHook.DEFAULT_STYLE_CONTRACT
     }
@@ -231,6 +239,12 @@ private fun App(refreshTick: Int) {
         welcome = welcome,
         textMap = textMap,
         styleContract = styleContract,
+        rulesText = rulesText,
+        deepTrim = deepTrim,
+        setDeepTrim = {
+            deepTrim = it
+            prefs.edit().putBoolean(PersonaHook.KEY_TOOL_DEEP, it).apply()
+        },
         toolTrim = toolTrim,
         setToolTrim = {
             toolTrim = it
@@ -570,6 +584,15 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 onClick = { state.open(Field.StyleContract) },
             )
             ArrowPreference(
+                title = "选工具规则",
+                summary = if (state.rulesText.isBlank()) {
+                    "官方 24,067 字 · 点按换成你自己的"
+                } else {
+                    "已自定义 ${state.rulesText.length} 字"
+                },
+                onClick = { state.open(Field.Rules) },
+            )
+            ArrowPreference(
                 title = "文案替换",
                 summary = if (state.textMap.isBlank()) {
                     "改开场白、「小爱陪伴」这类固定文案"
@@ -611,7 +634,15 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 checked = state.toolTrim,
                 onCheckedChange = state.setToolTrim,
             )
+            SwitchPreference(
+                title = "深度压缩（实验）",
+                summary = "按块砍到每个工具 ≤1500 字，省得最多，但可能影响工具调用",
+                checked = state.deepTrim,
+                onCheckedChange = state.setDeepTrim,
+            )
         }
+        Hint("深度压缩会砍掉示例和「意图→命令」决策表，只保留参数格式与适用边界。")
+        Hint("不保证没有副作用：如果工具调用变笨（用错工具、参数瞎填），把这个开关关掉即可。")
         Hint("整份替换 soul.md；身份句只改 prompt.md 里那一句，其余硬规则不动。")
     }
 }
