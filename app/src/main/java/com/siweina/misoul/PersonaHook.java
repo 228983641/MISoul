@@ -183,6 +183,79 @@ public final class PersonaHook extends XposedModule {
         }
     }
 
+    /**
+     * 热重载：模块 APK 更新后，LSPosed 会在已运行的小爱进程里重新加载模块，
+     * 不必强行停止小爱。这里先摘掉旧 hook（否则会重复生效），再用新代码装一遍。
+     */
+    @Override
+    public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
+        log(Log.INFO, TAG, "hot reloading: " + param.getExtras());
+        return true;
+    }
+
+    @Override
+    public void onHotReloaded(XposedModuleInterface.HotReloadedParam param) {
+        java.util.List<XposedInterface.HookHandle> old = param.getOldHookHandles();
+        // 热重载会创建一个新的模块实例，旧实例的字段不会带过来；
+        // 但旧 hook 句柄里握着目标方法，可以反推出被 hook 进程的 ClassLoader。
+        ClassLoader loader = appLoader;
+        if (loader == null) {
+            for (XposedInterface.HookHandle handle : old) {
+                try {
+                    java.lang.reflect.Executable executable = handle.getExecutable();
+                    if (executable != null) {
+                        loader = executable.getDeclaringClass().getClassLoader();
+                        if (loader != null) break;
+                    }
+                } catch (Throwable ignored) {
+                    // 换下一个句柄试
+                }
+            }
+        }
+
+        if (loader == null) {
+            loader = currentAppClassLoader();
+        }
+
+        int removed = 0;
+        for (XposedInterface.HookHandle handle : old) {
+            try {
+                handle.unhook();
+                removed++;
+            } catch (Throwable ignored) {
+                // 单个句柄摘不掉就继续，反正下面会重装
+            }
+        }
+
+        synchronized (installLock) {
+            installed = false;
+            reportedFailure = false;
+        }
+        // 计数器也重置，避免上一次运行的数字污染新的统计
+        toolCount.set(0);
+        toolCharsBefore.set(0);
+        toolCharsAfter.set(0);
+        toolParamChars.set(0);
+        toolFilterCalls.set(0);
+        contractLogged = false;
+        toolTrimLogged = false;
+        toolFilterLogged = false;
+        statsScheduled = false;
+        promptParts.clear();
+
+        log(Log.INFO, TAG, "hot reloaded: 摘掉 " + removed + " 个旧 hook，classLoader=" + loader);
+        if (loader == null) {
+            log(Log.WARN, TAG, "hot reload: 拿不到目标 ClassLoader，等下次包就绪");
+            return;
+        }
+        appLoader = loader;
+        try {
+            install(loader);
+        } catch (Throwable failure) {
+            log(Log.ERROR, TAG, "hot reload 后重装失败: " + failure, failure);
+        }
+    }
+
     private void install(ClassLoader loader) throws Exception {
         synchronized (installLock) {
             if (installed) return;
@@ -496,6 +569,23 @@ public final class PersonaHook extends XposedModule {
         log(Log.INFO, TAG, "hooking sj.e.getTools (工具筛选)");
     }
 
+    /** 拿当前进程的 ClassLoader：热重载后的新实例里没有旧字段，只能这样取。 */
+    private static ClassLoader currentAppClassLoader() {
+        try {
+            Class<?> activityThread = Class.forName("android.app.ActivityThread");
+            Object app = activityThread.getMethod("currentApplication").invoke(null);
+            if (app instanceof android.content.Context context) {
+                return context.getClassLoader();
+            }
+        } catch (Throwable ignored) {
+            // 退到系统 ClassLoader
+        }
+        try {
+            return ClassLoader.getSystemClassLoader();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
     private static java.util.Set<String> splitToSet(String raw) {
         java.util.Set<String> set = new java.util.LinkedHashSet<>();
         if (raw == null) return set;

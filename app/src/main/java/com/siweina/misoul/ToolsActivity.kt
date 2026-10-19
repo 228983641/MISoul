@@ -65,11 +65,19 @@ private data class ToolGroup(
     val chars: Int,
 )
 
-private val COMMON = setOf(
-    "voiceassist", "deskclock", "calendar", "timer", "notes", "phone", "telecom",
-    "app", "read", "send", "memory", "get", "set", "search", "music", "file",
+// 场景组：按「这一趟大概需要什么能力」划分，而不是按使用频率猜。
+private val GO_OUT = setOf(
+    "voiceassist", "timer", "deskclock", "control",
+    "amap_car", "amap-navigation", "variflight", "ctrip_travel", "alipay",
 )
-private val MINIMAL = setOf("voiceassist", "deskclock", "timer", "calendar")
+private val WORK = setOf(
+    "voiceassist", "deskclock", "calendar", "timer",
+    "notes", "read", "send", "search", "file", "memory", "get", "set", "app",
+)
+private val HOME = setOf(
+    "voiceassist", "deskclock", "calendar", "timer",
+    "notes", "music", "gallery", "phone", "telecom",
+)
 
 @Composable
 private fun ToolsScreen(onDone: () -> Unit) {
@@ -137,20 +145,30 @@ private fun ToolsScreen(onDone: () -> Unit) {
                             keep = emptySet()
                             persist(false, emptySet())
                         }
-                        PresetButton("常用", Modifier.weight(1f)) {
+                        PresetButton("出门", Modifier.weight(1f)) {
                             filterEnabled = true
-                            keep = COMMON
-                            persist(true, COMMON)
+                            keep = GO_OUT
+                            persist(true, GO_OUT)
                         }
-                        PresetButton("极简", Modifier.weight(1f)) {
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PresetButton("工作", Modifier.weight(1f)) {
                             filterEnabled = true
-                            keep = MINIMAL
-                            persist(true, MINIMAL)
+                            keep = WORK
+                            persist(true, WORK)
+                        }
+                        PresetButton("居家", Modifier.weight(1f)) {
+                            filterEnabled = true
+                            keep = HOME
+                            persist(true, HOME)
                         }
                     }
                 }
-                Hint("选「全部」= 不过滤；选「常用 / 极简」= 只保留对应类别。")
-                Hint("筛选在模型调用前生效，改完需要重启小爱；临时要用被砍的功能，切回「全部」再重启。")
+                Hint("「全部」= 不过滤；出门 / 工作 / 居家 = 只保留对应能力的类别。")
+                Hint("筛选按请求生效，改完直接发消息即可，不用重启小爱。")
 
                 SmallTitle("类别")
                 Card(Modifier.fillMaxWidth()) {
