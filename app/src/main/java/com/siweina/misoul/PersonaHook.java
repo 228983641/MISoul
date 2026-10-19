@@ -575,6 +575,10 @@ public final class PersonaHook extends XposedModule {
                                 + (result instanceof java.util.List<?> l ? l.size() : -1)
                                 + "，消息=" + abbreviate(lastUserText(chain.getThisObject())));
             }
+            // 第一次调用时把执行上下文的字段结构打出来，定位消息到底存在哪个字段
+            if (alive == 1) {
+                dumpContext(chain.getThisObject());
+            }
             Bundle config = config();
             if (config == null || !config.getBoolean(KEY_ENABLED, false)) return result;
             if (!config.getBoolean(KEY_TOOL_FILTER, false)) return result;
@@ -697,6 +701,35 @@ public final class PersonaHook extends XposedModule {
         if (text == null) return "null";
         String flat = text.replace("\n", " ").trim();
         return flat.length() > 40 ? flat.substring(0, 40) + "…" : flat;
+    }
+    /** 一次性打印执行上下文的字段结构，找出消息列表存在哪个字段。 */
+    private void dumpContext(Object context) {
+        try {
+            StringBuilder out = new StringBuilder("sj.e 字段：");
+            for (java.lang.reflect.Field field : context.getClass().getFields()) {
+                Object value = null;
+                try {
+                    value = field.get(context);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+                out.append('\n').append("  ").append(field.getName()).append(':')
+                        .append(field.getType().getSimpleName());
+                if (value instanceof java.util.List<?> list) {
+                    out.append(" size=").append(list.size());
+                    if (!list.isEmpty()) {
+                        Object first = list.get(0);
+                        out.append(" first=")
+                                .append(first == null ? "null" : first.getClass().getSimpleName());
+                    }
+                } else if (value instanceof String s) {
+                    out.append(" = ").append(abbreviate(s));
+                }
+            }
+            log(Log.INFO, TAG, out.toString());
+        } catch (Throwable failure) {
+            log(Log.WARN, TAG, "dumpContext 失败：" + failure);
+        }
     }
     private static String lastUserText(Object context) {
         try {
