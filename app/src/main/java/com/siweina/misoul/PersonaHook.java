@@ -134,6 +134,8 @@ public final class PersonaHook extends XposedModule {
     private volatile boolean toolFilterLogged;
     private volatile boolean usageReportWarned;
     private volatile boolean contextDumped;
+    private final java.util.concurrent.atomic.AtomicInteger cacheProbeCount =
+            new java.util.concurrent.atomic.AtomicInteger();
     private volatile String cachedUserText;
     private volatile long cachedUserTextAt;
     private final java.util.concurrent.atomic.AtomicInteger toolFilterCalls =
@@ -538,6 +540,9 @@ public final class PersonaHook extends XposedModule {
             if (!java.util.List.class.isAssignableFrom(method.getParameterTypes()[2])) continue;
             hook(method).intercept(chain -> {
                 try {
+                    if (cacheProbeCount.incrementAndGet() <= 3) {
+                        log(Log.INFO, TAG, "消息形态：" + describeMessages(chain.getArg(2)));
+                    }
                     String text = lastUserTextIn(chain.getArg(2));
                     if (text != null && !text.isBlank()) {
                         cachedUserText = text;
@@ -554,6 +559,31 @@ public final class PersonaHook extends XposedModule {
         log(Log.WARN, TAG, "没找到 beforeModelCall，消息缓存不可用");
     }
 
+    /** 打印消息列表末尾几条的形态，用来确定用户原话存在哪种类型里。 */
+    private static String describeMessages(Object listObject) {
+        if (!(listObject instanceof java.util.List<?> list)) return "not-a-list";
+        StringBuilder out = new StringBuilder();
+        int from = Math.max(0, list.size() - 4);
+        for (int i = from; i < list.size(); i++) {
+            Object message = list.get(i);
+            if (message == null) {
+                out.append(" [null]");
+                continue;
+            }
+            String role = "?";
+            Object content = null;
+            try {
+                role = String.valueOf(message.getClass().getMethod("getRole").invoke(message));
+                content = message.getClass().getMethod("getContent").invoke(message);
+            } catch (Throwable ignored) {
+                // 结构不一致
+            }
+            out.append(" [").append(role).append('/')
+                    .append(content == null ? "null" : content.getClass().getSimpleName())
+                    .append(':').append(abbreviate(String.valueOf(content))).append(']');
+        }
+        return out.toString();
+    }
     /** 从一个 List<Message> 里取最后一条用户消息。 */
     private static String lastUserTextIn(Object listObject) {
         if (!(listObject instanceof java.util.List<?> list)) return null;

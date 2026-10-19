@@ -210,17 +210,7 @@ private fun ToolsScreen(onDone: () -> Unit) {
                         }
                     }
                 }
-                Card(Modifier.fillMaxWidth()) {
-                    SwitchPreference(
-                        title = "按对话关键词临时放开",
-                        summary = "消息里提到航班/酒店/导航等时，本轮临时放开对应类别",
-                        checked = autoExpand,
-                        onCheckedChange = { on ->
-                            autoExpand = on
-                            prefs.edit().putBoolean(PersonaHook.KEY_AUTO_EXPAND, on).apply()
-                        },
-                    )
-                }
+
                 Hint("「全部」= 不过滤；出门 / 工作 / 居家 = 只保留对应能力的类别。")
                 Hint("筛选按请求生效，改完直接发消息即可，不用重启小爱。")
 
