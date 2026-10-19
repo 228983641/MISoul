@@ -21,12 +21,12 @@
 
         <provider
             android:name=".PersonaProvider"
-            android:authorities="com.siweina.misoul.config"
+            android:authorities="${applicationId}.config"
             android:exported="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.siweina.misoul.fileprovider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

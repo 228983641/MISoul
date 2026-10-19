@@ -14,7 +14,7 @@ import android.os.Bundle;
  */
 public final class PersonaProvider extends ContentProvider {
 
-    public static final String AUTHORITY = "com.siweina.misoul.config";
+    public static final String AUTHORITY = "io.github.siweina.misoul.config";
     public static final String METHOD = "persona";
     /** 小爱进程回传工具调用：method=usage, arg=工具名。 */
     public static final String METHOD_USAGE = "usage";
