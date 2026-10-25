@@ -691,14 +691,14 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
         }
         Section("会员解锁") {
             SwitchPreference(
-                title = "定时任务会员解锁",
-                summary = "绕过本地定时任务会员检查，与人格替换无关，默认关闭",
+                title = "会员解锁（定时任务 + 视频生成）",
+                summary = "绕过本地会员检查，定时任务与视频生成共用同一判断，与人格替换无关，默认关闭",
                 checked = state.vipUnlock,
                 onCheckedChange = state.setVipUnlock,
             )
         }
-        Hint("只放行定时任务的创建/修改。建好后到点能否执行仍需实测：执行侧也可能再查会员，任务可能被跳过。场景如果走米家云端建规则，本地解锁帮不上。")
-        Hint("视频生成是另一个独立会员关，本开关不碰它。")
+        Hint("只放行本地检查。定时任务建好后到点能否执行仍需实测；视频生成在云端渲染，服务端仍可能在生成时再拦，不一定出片。场景如果走米家云端建规则，本地解锁帮不上。")
+        Hint("视频生成的客户端关口与定时任务共用同一会员判断，所以本开关打开后两者同时放行，不能只开其中一个。")
         Section("开关") {
             SwitchPreference(
                 title = "人格替换",

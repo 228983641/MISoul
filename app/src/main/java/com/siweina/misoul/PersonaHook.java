@@ -1564,7 +1564,7 @@ public final class PersonaHook extends XposedModule {
         return value == null || value.trim().isEmpty();
     }
 
-    // ---- 超级小爱会员解锁（定时任务） ----
+    // ---- 超级小爱会员解锁（定时任务 + 视频生成，共用同一判断） ----
     //
     // 问题（超级小爱 8.3.30.4420 / 508003030，实测包内静态分析）：
     // 非会员让小爱建「定时 AI 任务」时，模型并不是弹一个固定提示，而是说出
@@ -1593,8 +1593,16 @@ public final class PersonaHook extends XposedModule {
     //     仍可能被跳过，只能真机实测。
     //   - 场景自动化没有在包里找到独立的会员关：如果场景是走定时任务去
     //     执行，本 hook 就覆盖；如果走米家云端建规则，本地 hook 帮不上。
-    //   - 视频生成是另一个平行的会员关（video_builder_membership_required），
-    //     本功能 deliberately 不碰它。
+    //   - 视频生成不是独立的会员判断，它共用上面同一个 checkTimerAccess：
+    //     付费功能门 PaidFeatureGate（Ldl/z3$a$b）.verdictOf(VIDEO_BUILDER)
+    //     先调 checkTimerAccess，ALLOWED 就返回 null（=放行），否则返回
+    //     facade/n1 拒绝（免费版文案代号 50201，未验证为
+    //     MEMBERSHIP_UNVERIFIED）；聊天界面的视频模式关口（Lhu/o5$d0）
+    //     同样先调 checkTimerAccess，ALLOWED 才设置 activeTaskMode，
+    //     否则弹 video_builder_membership_required / _unverified 提示。
+    //     所以本开关打开后，定时任务和视频生成的客户端关口同时放行，
+    //     无法只开其中一个；视频是云端沙箱渲染，服务端仍可能在真正
+    //     生成时再拦一次，客户端放行不等于一定出片，只能真机实测。
 
     private volatile boolean vipLogged;
 
