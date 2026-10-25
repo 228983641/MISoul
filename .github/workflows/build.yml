@@ -29,7 +29,7 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-            printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\nstoreType=PKCS12\n' "$STORE_PASSWORD" "${KEY_ALIAS:-misoul}" "$KEY_PASSWORD" > keystore.properties
+            printf 'storeFile=%s/release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\nstoreType=PKCS12\n' "$GITHUB_WORKSPACE" "$STORE_PASSWORD" "${KEY_ALIAS:-misoul}" "$KEY_PASSWORD" > keystore.properties
           else
             echo "No release keystore secret, falling back to debug signing"
           fi
