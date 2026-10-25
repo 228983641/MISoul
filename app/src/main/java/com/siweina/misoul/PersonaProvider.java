@@ -40,6 +40,8 @@ public final class PersonaProvider extends ContentProvider {
         SharedPreferences prefs = getContext().getSharedPreferences(PersonaHook.PREFS, 0);
         Bundle bundle = new Bundle();
         bundle.putBoolean(PersonaHook.KEY_ENABLED, prefs.getBoolean(PersonaHook.KEY_ENABLED, false));
+        bundle.putBoolean(PersonaHook.KEY_VIP_UNLOCK,
+                prefs.getBoolean(PersonaHook.KEY_VIP_UNLOCK, false));
         bundle.putBoolean(PersonaHook.KEY_FIX_PROMPT, prefs.getBoolean(PersonaHook.KEY_FIX_PROMPT, true));
         bundle.putString(PersonaHook.KEY_NAME, prefs.getString(PersonaHook.KEY_NAME, PersonaHook.DEFAULT_NAME));
         bundle.putString(PersonaHook.KEY_SOUL, prefs.getString(PersonaHook.KEY_SOUL, ""));

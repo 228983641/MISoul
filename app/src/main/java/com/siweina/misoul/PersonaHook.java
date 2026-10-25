@@ -33,6 +33,8 @@ public final class PersonaHook extends XposedModule {
     public static final String PREFS = "persona";
 
     public static final String KEY_ENABLED = "enabled";
+    /** 超级小爱会员解锁（定时任务）：默认关闭，与人格替换开关相互独立。 */
+    public static final String KEY_VIP_UNLOCK = "vip_unlock";
     public static final String KEY_SOUL = "soul";
     public static final String KEY_FIX_PROMPT = "fix_prompt";
     public static final String KEY_NAME = "name";
@@ -316,6 +318,12 @@ public final class PersonaHook extends XposedModule {
             hookToolDescription(loader);
         } catch (Throwable failure) {
             log(Log.ERROR, TAG, "tool trim skipped: " + failure);
+        }
+        try {
+            hookVipUnlock(loader);
+        } catch (Throwable failure) {
+            // 会员解锁是可选能力：失败时不影响人格等原有功能。
+            log(Log.ERROR, TAG, "vip unlock skipped: " + failure);
         }
 
         synchronized (installLock) {
@@ -1554,6 +1562,96 @@ public final class PersonaHook extends XposedModule {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    // ---- 超级小爱会员解锁（定时任务） ----
+    //
+    // 问题（超级小爱 8.3.30.4420 / 508003030，实测包内静态分析）：
+    // 非会员让小爱建「定时 AI 任务」时，模型并不是弹一个固定提示，而是说出
+    // 「需要会员才能执行自动化」——包里根本没有这句原话，它是模型根据工具
+    // 返回的拒绝理由现场组织出来的。真正的关卡在本地工具层：
+    //   com.aios.osbot.membership.MembershipRepository.checkTimerAccess()
+    //     -> 枚举 MembershipRepository$b：ALLOWED / BLOCKED_FREE / BLOCKED_UNVERIFIED
+    //     （等级来自账号/服务端刷新，本地只缓存 membership_state）
+    //   com.aios.osbot.tools.system.TimerTool.membershipBlockOrNull()
+    //   com.aios.osbot.tools.system.TimerTool.enabledUpdateMembershipBlockOrNull(boolean)
+    //     -> 非空即挡住创建/修改；BLOCKED_FREE 时模型按内置文案收尾：
+    //        「请到「我的」→「用量与订阅」中，升级会员。」
+    //
+    // 本 hook 只在用户主动打开开关时生效，且与人格替换开关相互独立：
+    //   - checkTimerAccess -> ALLOWED（覆盖创建与执行两侧共用的同一判断）
+    //   - membershipBlockOrNull / enabledUpdateMembershipBlockOrNull -> null（=不挡）
+    // 这两个都是 Kotlin suspend 方法，Java 签名是 (Continuation) -> Object；
+    // 未挂起时直接返回结果对象即可，返回 null / 枚举常量就是正常返回值，
+    // 不是绕过协程。其它功能（人格、工具筛选、描述瘦身）一行未动。
+    //
+    // 诚实边界（必须写进 README，不能打包票）：
+    //   - 创建时放行，不等于到点一定执行：TimerAlarmReceiver /
+    //     TaskForegroundService 手里也有会员仓库，日志里有
+    //     「One-time timer, pausing until membership can be verified」和
+    //     timer_skipped_membership_required / unverified，建好的任务到点
+    //     仍可能被跳过，只能真机实测。
+    //   - 场景自动化没有在包里找到独立的会员关：如果场景是走定时任务去
+    //     执行，本 hook 就覆盖；如果走米家云端建规则，本地 hook 帮不上。
+    //   - 视频生成是另一个平行的会员关（video_builder_membership_required），
+    //     本功能 deliberately 不碰它。
+
+    private volatile boolean vipLogged;
+
+    private void hookVipUnlock(ClassLoader loader) throws Exception {
+        Class<?> repository = Class.forName(
+                "com.aios.osbot.membership.MembershipRepository", false, loader);
+        for (Method method : repository.getDeclaredMethods()) {
+            if (!"checkTimerAccess".equals(method.getName())
+                    || method.getParameterCount() != 1) {
+                continue;
+            }
+            hook(method).intercept(chain -> {
+                if (!vipUnlock()) return chain.proceed();
+                Object allowed = allowedAccess(loader);
+                if (allowed == null) return chain.proceed();
+                if (!vipLogged) {
+                    vipLogged = true;
+                    log(Log.INFO, TAG, "会员解锁：checkTimerAccess -> ALLOWED");
+                }
+                return allowed;
+            });
+            log(Log.INFO, TAG, "hooking MembershipRepository.checkTimerAccess (会员解锁)");
+            break;
+        }
+
+        Class<?> timerTool = Class.forName(
+                "com.aios.osbot.tools.system.TimerTool", false, loader);
+        for (Method method : timerTool.getDeclaredMethods()) {
+            String name = method.getName();
+            if (!"membershipBlockOrNull".equals(name)
+                    && !"enabledUpdateMembershipBlockOrNull".equals(name)) {
+                continue;
+            }
+            hook(method).intercept(chain -> {
+                if (!vipUnlock()) return chain.proceed();
+                return null;
+            });
+            log(Log.INFO, TAG, "hooking TimerTool." + name + " (会员解锁)");
+        }
+    }
+
+    /** 枚举 MembershipRepository$b.ALLOWED；拿不到就返回 null（走原逻辑，不硬编）。 */
+    private static Object allowedAccess(ClassLoader loader) {
+        try {
+            Class<?> access = Class.forName(
+                    "com.aios.osbot.membership.MembershipRepository$b", false, loader);
+            java.lang.reflect.Field field = access.getField("ALLOWED");
+            return field.get(null);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 会员解锁开关：独立于人格替换开关，默认关闭。 */
+    private boolean vipUnlock() {
+        Bundle config = config();
+        return config != null && config.getBoolean(KEY_VIP_UNLOCK, false);
     }
 
     // ---- 配置读取 ----

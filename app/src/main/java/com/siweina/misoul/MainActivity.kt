@@ -114,6 +114,8 @@ class MainActivity : ComponentActivity() {
 private class UiState(
     val enabled: Boolean,
     val setEnabled: (Boolean) -> Unit,
+    val vipUnlock: Boolean,
+    val setVipUnlock: (Boolean) -> Unit,
     val fixPrompt: Boolean,
     val setFixPrompt: (Boolean) -> Unit,
     val profileEnabled: Boolean,
@@ -160,6 +162,9 @@ private fun App(refreshTick: Int) {
 
     var enabled by rememberSaveable {
         mutableStateOf(prefs.getBoolean(PersonaHook.KEY_ENABLED, false))
+    }
+    var vipUnlock by rememberSaveable {
+        mutableStateOf(prefs.getBoolean(PersonaHook.KEY_VIP_UNLOCK, false))
     }
     var fixPrompt by rememberSaveable {
         mutableStateOf(prefs.getBoolean(PersonaHook.KEY_FIX_PROMPT, true))
@@ -229,6 +234,11 @@ private fun App(refreshTick: Int) {
         setEnabled = {
             enabled = it
             prefs.edit().putBoolean(PersonaHook.KEY_ENABLED, it).apply()
+        },
+        vipUnlock = vipUnlock,
+        setVipUnlock = {
+            vipUnlock = it
+            prefs.edit().putBoolean(PersonaHook.KEY_VIP_UNLOCK, it).apply()
         },
         fixPrompt = fixPrompt,
         setFixPrompt = {
@@ -679,6 +689,16 @@ private fun FeaturesPage(state: UiState, bottomPadding: Dp) {
                 onClick = state.openTools,
             )
         }
+        Section("会员解锁") {
+            SwitchPreference(
+                title = "定时任务会员解锁",
+                summary = "绕过本地定时任务会员检查，与人格替换无关，默认关闭",
+                checked = state.vipUnlock,
+                onCheckedChange = state.setVipUnlock,
+            )
+        }
+        Hint("只放行定时任务的创建/修改。建好后到点能否执行仍需实测：执行侧也可能再查会员，任务可能被跳过。场景如果走米家云端建规则，本地解锁帮不上。")
+        Hint("视频生成是另一个独立会员关，本开关不碰它。")
         Section("开关") {
             SwitchPreference(
                 title = "人格替换",
