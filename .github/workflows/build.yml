@@ -20,6 +20,19 @@ jobs:
           ls "$ANDROID_HOME/platforms" || true
           ls "$ANDROID_HOME/build-tools" || true
       - uses: gradle/actions/setup-gradle@v4
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MISOUL_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.MISOUL_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.MISOUL_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MISOUL_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\nstoreType=PKCS12\n' "$STORE_PASSWORD" "${KEY_ALIAS:-misoul}" "$KEY_PASSWORD" > keystore.properties
+          else
+            echo "No release keystore secret, falling back to debug signing"
+          fi
       - name: Build release APK
         run: |
           chmod +x gradlew
