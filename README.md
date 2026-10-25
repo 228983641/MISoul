@@ -1,5 +1,19 @@
 # MISoul
 
+> **这是 siweina/MISoul 的一个 fork（非官方分支），不是上游原项目。**
+> 本 fork 只在上游 1.0.4（commit `28de5a1`）基础上加了一个功能：**超级小爱定时任务会员解锁**，
+> 其余人格、形象、工具筛选等功能一行未动。原作者、原项目地址与许可证见下文，上游 README 正文全部保留。
+>
+> **与前一个开源项目的区别（不要装错）：**
+> - 前一个项目是 **GramSieve Conso 改编版**（`gramsieve-conso-mod`）：给 Telegram 的 Conso 客户端
+>  （`global.xfinite.conso`）做消息过滤、去广告、本地 Premium，基于 GramSieve 上游，与小爱完全无关。
+> - 本项目是 **MISoul 会员解锁版**：给超级小爱（`com.miui.voiceassist`）用，基于 siweina/MISoul 上游，
+>   只解决“非会员建不了定时 AI 任务 / 场景自动化”这一个问题。两者目标应用、上游、作用域、安装包
+>   都不一样，APK 不能互换，LSPosed 作用域也不能互勾。
+> - 详细的问题分析、hook 点、效果与诚实边界见 **[docs/vip-unlock.md](docs/vip-unlock.md)**。
+> - 版本号用 `1.0.4-vip1`（versionCode 40）与上游 `1.0.4` 区分；签名与上游不同，装本版前
+>   如已装上游版需先卸载上游版（签名冲突无法覆盖安装）。
+
 <div align="center">
 
 ![release](https://img.shields.io/github/v/release/siweina/MISoul?include_prereleases&style=flat-square)
