@@ -1749,6 +1749,17 @@ public final class PersonaHook extends XposedModule {
         return config != null && config.getBoolean(KEY_FLOW_PLAN, false);
     }
 
+    /** 判断 controlApp 的返回是不是错误：null 或拿不到 isError 都算错误，不记录。 */
+    private static boolean isFlowError(Object result) {
+        if (result == null) return true;
+        try {
+            Object error = result.getClass().getMethod("isError").invoke(result);
+            return error instanceof Boolean && (Boolean) error;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
     private static boolean isFlowSensitive(String query) {
         for (String word : FLOW_SENSITIVE) {
             if (query.contains(word)) return true;
