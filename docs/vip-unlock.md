@@ -63,11 +63,20 @@
   - 如果场景是“走米家云端建联动规则”，那道关在云端，本地 hook 帮不上，
     只能拿一条具体场景命令实测后才能定论。
 
-### 2.4 刻意不碰的关
+### 2.4 视频生成：不是独立的判断，共用同一个 checkTimerAccess
 
-- 视频生成有另一个平行的会员关（`video_builder_membership_required` /
-  `video_builder_membership_unverified`，文案是“当前账号为免费版，视频生成是会员功能”）。
-  本功能**不碰它**，保持“只加一个功能”的范围。
+- 视频生成工具 `video_builder`（文案：视频生成模型 → 生成视频文件，文生视频 /
+  图生视频均支持）确实有自己的拒绝文案（`video_builder_membership_required` /
+  `video_builder_membership_unverified`，即“当前账号为免费版，视频生成是会员功能”），
+  但它的关口**不是另一个独立的会员判断**：
+  - 付费功能门 `PaidFeatureGate`（`Ldl/z3$a$b`）的 `verdictOf(VIDEO_BUILDER)`：
+    先调 `MembershipRepository.checkTimerAccess()`，结果是 ALLOWED 就返回 null（=放行），
+    否则返回拒绝（免费版代号 `50201`，未验证为 `MEMBERSHIP_UNVERIFIED`）；
+  - 聊天界面的视频模式关口（`Lhu/o5$d0`）同样先调 `checkTimerAccess()`，
+    ALLOWED 才设置 activeTaskMode，否则弹上述两条提示并清除任务模式。
+- 结论：**本开关打开后，定时任务和视频生成的客户端关口同时放行，无法只开其中一个。**
+  但视频是云端沙箱渲染，服务端仍可能在真正生成时再查一次会员，客户端放行
+  不等于一定出片，必须真机实测（见第 5 节新增的视频实测步骤）。
 
 ## 3. 本 fork 改了什么代码
 
@@ -77,8 +86,8 @@
 |---|---|
 | `app/src/main/java/com/siweina/misoul/PersonaHook.java` | 新增 `KEY_VIP_UNLOCK`；`install()` 里新增 `hookVipUnlock()`（失败时只记日志，不影响人格等原有功能）；新增 `vipUnlock()`（只读开关，**与人格替换开关相互独立**） |
 | `app/src/main/java/com/siweina/misoul/PersonaProvider.java` | `call()` 里多返回一个布尔：`KEY_VIP_UNLOCK`（默认 false） |
-| `app/src/main/java/com/siweina/misoul/MainActivity.kt` | 功能页新增“会员解锁”区：一个开关 `定时任务会员解锁` + 两条诚实边界提示；开关状态存在同一个 `persona` SharedPreferences 里 |
-| `app/build.gradle` | `versionCode 39 -> 40`，`versionName 1.0.4 -> 1.0.4-vip1`，仅用于与上游区分 |
+| `app/src/main/java/com/siweina/misoul/MainActivity.kt` | 功能页新增“会员解锁”区：一个开关 `会员解锁（定时任务 + 视频生成）` + 两条诚实边界提示；开关状态存在同一个 `persona` SharedPreferences 里 |
+| `app/build.gradle` | `versionCode 39 -> 41`，`versionName 1.0.4 -> 1.0.4-vip2`，仅用于与上游区分（vip1 只有定时任务文案，vip2 起文案改为定时任务 + 视频生成） |
 | `docs/vip-unlock.md`（本文件） | 问题分析与效果说明 |
 | `.github/workflows/build.yml` | CI 构建：GitHub Actions 上跑 `assembleRelease`，产物为 `MISoul-vip` artifact，供核对后下载 |
 
@@ -111,14 +120,14 @@ TimerTool.enabledUpdateMembershipBlockOrNull(...)  ->  null  // = 不挡
 | 修改 / 重新启用一个已建的定时任务 | 同样可能被会员检查挡住 | 修改检查同样放行 |
 | 查看已建任务列表（timer list） | 本来就不判断会员状态（包内文案明确写了） | 不变 |
 | 场景自动化 | 若走定时任务路径，随定时任务一起放行；若走米家云端，仍可能被云端挡 | 同左，需实测具体命令 |
-| 视频生成 | 免费版被挡 | **不变，仍被挡**（本功能不碰） |
+| 视频生成 | 免费版被挡（客户端关口 + 云端生成） | 客户端关口随本开关一起放行；云端生成是否再拦，需实测，不保证出片 |
 | 人格、形象、工具筛选、描述瘦身 | 上游行为 | **不变** |
 
 ## 5. 安装与实测（必须做，别只看创建成功）
 
 1. 如已装上游 MISoul，先在 LSPosed 里停用并卸载它（签名不同，无法覆盖安装）。
 2. 安装本版 APK，在 LSPosed 里启用，作用域只勾选「超级小爱」，强行停止超级小爱再打开。
-3. 打开本模块 → 功能 → 会员解锁 → 打开「定时任务会员解锁」。
+3. 打开本模块 → 功能 → 会员解锁 → 打开「会员解锁（定时任务 + 视频生成）」。
 4. 先测创建：让小爱建一个 **几分钟后** 的定时任务（不要先测明天/下周），看它是否不再说会员拒绝、
    且任务出现在任务列表里。
 5. **再测执行（最关键的一步）**：等到那个几分钟后的时间点，看任务到底有没有执行。
@@ -127,6 +136,9 @@ TimerTool.enabledUpdateMembershipBlockOrNull(...)  ->  null  // = 不挡
      “One-time timer, pausing until membership can be verified”，
      说明执行侧又查了一次会员——这是第 6 节写明的已知边界，不是创建 hook 写错了。
 6. 再测一条你自己的场景自动化命令，确认它是走定时任务还是走米家云端。
+7. 再测视频生成：让小爱生成一段短视频，看它是否不再说会员拒绝、且最终是否
+   真的返回视频文件。只到“不再拒绝”不算成功——云端生成侧可能另有会员校验，
+   若生成失败 / 长时间不出片，说明服务端那一关本地 hook 绕不过去。
 
 日志：`adb logcat | grep MISoul`，解锁生效时会有一行
 `会员解锁：checkTimerAccess -> ALLOWED`。
