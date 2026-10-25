@@ -21,8 +21,8 @@ android {
         applicationId 'io.github.siweina.misoul'
         minSdk 33
         targetSdk 35
-        versionCode 41
-        versionName '1.0.4-vip2'
+        versionCode 42
+        versionName '1.0.4-vip3'
     }
 
     signingConfigs {
