@@ -14,11 +14,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Install Android SDK 37
+      - name: Show preinstalled SDK platforms
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list --channel=3 | grep -E "platforms;android|build-tools;37" || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-CinnamonBun" "build-tools;37.0.0" || "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-CinnamonBun" "build-tools;37.0.0" || "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+          ls "$ANDROID_HOME/build-tools" || true
       - uses: gradle/actions/setup-gradle@v4
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
