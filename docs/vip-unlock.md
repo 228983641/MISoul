@@ -80,14 +80,14 @@
 
 ## 3. 本 fork 改了什么代码
 
-只改 4 个原有文件 + 新增 2 个文档/工作流文件（见下表），其余文件与上游 1.0.4 完全一致。
+只改原有文件 + 新增文档/工作流文件（见下表；vip3 的流程功能与 vip4 的固定签名各有专文：docs/flow-inject.md、docs/signing.md），其余文件与上游 1.0.4 完全一致。
 
 | 文件 | 改动 |
 |---|---|
 | `app/src/main/java/com/siweina/misoul/PersonaHook.java` | 新增 `KEY_VIP_UNLOCK`；`install()` 里新增 `hookVipUnlock()`（失败时只记日志，不影响人格等原有功能）；新增 `vipUnlock()`（只读开关，**与人格替换开关相互独立**） |
 | `app/src/main/java/com/siweina/misoul/PersonaProvider.java` | `call()` 里多返回一个布尔：`KEY_VIP_UNLOCK`（默认 false） |
 | `app/src/main/java/com/siweina/misoul/MainActivity.kt` | 功能页新增“会员解锁”区：一个开关 `会员解锁（定时任务 + 视频生成）` + 两条诚实边界提示；开关状态存在同一个 `persona` SharedPreferences 里 |
-| `app/build.gradle` | `versionCode 39 -> 41`，`versionName 1.0.4 -> 1.0.4-vip2`，仅用于与上游区分（vip1 只有定时任务文案，vip2 起文案改为定时任务 + 视频生成） |
+| `app/build.gradle` | 版本号用于与上游区分：vip1 为 `1.0.4-vip1`（40），vip2 为 `1.0.4-vip2`（41），vip3 为 `1.0.4-vip3`（42，新增自动化流程，见 docs/flow-inject.md），vip4 为 `1.0.4-vip4`（43，固定发布签名，见 docs/signing.md） |
 | `docs/vip-unlock.md`（本文件） | 问题分析与效果说明 |
 | `.github/workflows/build.yml` | CI 构建：GitHub Actions 上跑 `assembleRelease`，产物为 `MISoul-vip` artifact，供核对后下载 |
 
@@ -143,12 +143,18 @@ TimerTool.enabledUpdateMembershipBlockOrNull(...)  ->  null  // = 不挡
 日志：`adb logcat | grep MISoul`，解锁生效时会有一行
 `会员解锁：checkTimerAccess -> ALLOWED`。
 
+**已确认的真机结果（2026-10-25）：** 未开开关时建定时任务被拒（免费版不支持
+创建由 AI 到点自动执行的定时任务）；开开关后“支付宝签到”定时任务成功建进
+列表并启用，模型不再说会员拒绝。创建可用不等于到点执行可用——到点执行、
+视频云端出片、米家云端场景仍按第 6 节的边界实测，前台点击流程问题已由
+vip3 的自动化流程机制单独处理（见 docs/flow-inject.md）。
+
 ## 6. 诚实边界与风险（读完再决定用不用）
 
 - **创建放行 ≠ 执行保证**：执行侧（`TimerAlarmReceiver` / `TaskForegroundService`）
   手里也有会员仓库，包内日志明确有“一次性定时任务，等会员状态能确认时再暂停”
-  和 `timer_skipped_membership_required / unverified`。本版 v1 只做了创建/修改侧的放行，
-  执行侧是否同样放行，必须按第 5 节实测，不能提前承诺。
+  和 `timer_skipped_membership_required / unverified`。本 fork 只做了创建/修改侧的放行，
+  执行侧是否同样放行，必须按第 5 节实测，不能提前承诺（创建侧已在真机上确认可用）。
 - **服务端仍可能挡**：会员等级本身来自账号/服务端刷新，本 hook 没有改你的账号状态、
   没有伪造购买、没有改服务端数据。任何需要服务端真正校验会员的任务（例如米家云端规则、
   需要服务端配额的能力）仍可能失败。
