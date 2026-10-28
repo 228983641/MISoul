@@ -57,7 +57,7 @@
 
 ## 安装（本 fork，和上游版不一样）
 
-> 本 fork 没有在 Releases 里发包，安装包来自本仓库的 GitHub Actions 产物 `MISoul-vip`。
+> 本 fork 已在 Releases 里发包：[v1.0.4-vip4](https://github.com/228983641/MISoul/releases/tag/v1.0.4-vip4)，附件 `MISoul-v1.0.4-vip4.apk`。
 > 也可以按 [docs/vip-unlock.md](docs/vip-unlock.md) 第 7 节自己用 `./gradlew assembleRelease` 编译。
 
 1. 如已装上游 MISoul 或本 fork 的 vip1–vip3，先卸载它（签名不同，无法覆盖安装；
@@ -137,7 +137,7 @@
 
 ## 安装
 
-1. 安装本 fork 的 APK（见上文“安装（本 fork）”一节，来自本仓库 Actions 产物 `MISoul-vip`；上游 Releases 里的是原版，没有这两个新增功能）
+1. 安装本 fork 的 APK（见上文“安装（本 fork）”一节，来自本仓库 Releases 的 v1.0.4-vip4；上游 Releases 里的是原版，没有这两个新增功能）
 2. 在 LSPosed 里启用 **MISoul**，作用域勾选「超级小爱」
 3. **强行停止超级小爱**（LSPosed 提示「模块已更新」时也必须这么做），再打开
 4. 打开 MISoul → 功能 → 人格全文，粘贴你自己的人格，保存
